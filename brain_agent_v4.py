@@ -16,6 +16,11 @@ from datetime import datetime
 from dotenv import load_dotenv
 import asyncpg
 import aiohttp
+import hashlib
+import re
+
+def _fingerprint(content: str) -> str:
+    return hashlib.sha256(re.sub(r'\s+', ' ', content.strip()).encode('utf-8')).hexdigest()
 
 # Gemini integration
 try:
@@ -31,6 +36,26 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("SecondBrain")
+
+# (2) Failure Gate — consecutive tool/model failure cap (deepseek→qwen hang guard)
+# If N calls fail in a row, give up with clear error instead of hanging/looping.
+# Tunable via env: MAX_CONSECUTIVE_TOOL_FAILURES (default 3), OLLAMA_TIMEOUT (default 300s)
+DEFAULT_MAX_CONSECUTIVE_TOOL_FAILURES = 3
+_FAILURE_PREFIXES = ("error:", "blocked:", "not found:", "tool not found",
+                     "failed:", "fatal:", "denied:", "unable to", "traceback")
+
+def _tool_result_failed(result) -> bool:
+    """True if a tool result string clearly signals a failure (incl. non-zero exit)."""
+    if not isinstance(result, str):
+        return False
+    s = result.strip().lower()
+    if not s:
+        return False
+    if s.startswith(_FAILURE_PREFIXES):
+        return True
+    if s.startswith("exit ") and not s.startswith("exit 0:"):
+        return True
+    return False
 
 # Security: Shell command denylist
 SHELL_DENYLIST = (
@@ -90,8 +115,8 @@ NEON_DSN = os.getenv("NEON_DSN") or os.getenv("DATABASE_URL")
 OLLAMA_EMBED_URL = os.getenv("OLLAMA_EMBED_URL", "http://127.0.0.1:11434/api/embed")
 OLLAMA_CHAT_URL = os.getenv("OLLAMA_CHAT_URL", "http://127.0.0.1:11434/api/chat")
 EMBED_MODEL = os.getenv("EMBED_MODEL", "nomic-embed-text")
-ARCHITECT_MODEL = os.getenv("ARCHITECT_MODEL", "deepseek-r1:14b")
-EDITOR_MODEL = os.getenv("EDITOR_MODEL", "deepseek-r1:14b")
+ARCHITECT_MODEL = os.getenv("ARCHITECT_MODEL", "qwen2.5:7b")
+EDITOR_MODEL = os.getenv("EDITOR_MODEL", "qwen2.5:7b")
 EMBED_DIM = int(os.getenv("EMBED_DIM", "768"))
 AUTO_COMMIT = os.getenv("AUTO_COMMIT", "false").strip().lower() == "true"
 
@@ -231,21 +256,46 @@ class Agent:
         self.history.append({"role": "user", "content": user_msg})
         messages = [{"role": "system", "content": self.system}] + self.history
 
+        max_failures = int(os.getenv(
+            "MAX_CONSECUTIVE_TOOL_FAILURES", str(DEFAULT_MAX_CONSECUTIVE_TOOL_FAILURES)))
+        consecutive_failures = 0
+        last_failure = ""
+
         async with aiohttp.ClientSession() as session:
-            for _ in range(8):
+            for loop_idx in range(8):
                 payload = {"model": self.model, "messages": messages, "stream": False}
                 if tools:
                     payload["tools"] = tools
 
+                # Ollama timeout tunable via env (was hardcoded 600s for deepseek slow-load; qwen is faster)
+                ollama_timeout = int(os.getenv("OLLAMA_TIMEOUT", "300"))
                 try:
                     async with session.post(OLLAMA_CHAT_URL, json=payload,
-                                            timeout=aiohttp.ClientTimeout(total=600, connect=60)) as resp:
+                                            timeout=aiohttp.ClientTimeout(total=ollama_timeout, connect=60)) as resp:
                         data = await resp.json()
-                except (aiohttp.TimeoutError, aiohttp.ClientError):
-                    await asyncio.sleep(2)
+                except (asyncio.TimeoutError, aiohttp.ClientError) as e:
+                    consecutive_failures += 1
+                    last_failure = f"model {self.model} call failed ({type(e).__name__}: {str(e)[:150]})"
+                    logger.warning("[%s] Model call failed %d/%d (loop %d/8): %s", self.name, consecutive_failures, max_failures, loop_idx+1, last_failure)
+                    if consecutive_failures >= max_failures:
+                        return (f"[AGENT GAVE UP] {consecutive_failures} consecutive model failures "
+                                f"(cap {max_failures}); last: {last_failure}. "
+                                f"Ollama {self.model} appears unavailable/hung (deepseek→qwen hang guard). "
+                                "Check `ollama ps` and `ollama list`, ensure qwen2.5:7b is pulled and VRAM free.")
+                    await asyncio.sleep(2 * consecutive_failures)
                     continue
                 if "error" in data:
-                    return f"ERROR: {data['error']}"
+                    err = str(data["error"])
+                    consecutive_failures += 1
+                    last_failure = f"model {self.model} error: {err[:200]}"
+                    logger.warning("[%s] Model returned error %d/%d: %s", self.name, consecutive_failures, max_failures, last_failure)
+                    # For 'model not found' or after cap, give up immediately with clear message
+                    if consecutive_failures >= max_failures or "not found" in err.lower() or "connection" in err.lower():
+                        return (f"[AGENT GAVE UP] Ollama error after {consecutive_failures} consecutive failures "
+                                f"(cap {max_failures}): {err}. Check Ollama and model {self.model}.")
+                    await asyncio.sleep(2)
+                    continue
+                # model succeeded — don't reset yet; let tool result decide (unless no tools)
                 msg = data["message"]
 
                 if not msg.get("tool_calls"):
@@ -254,6 +304,8 @@ class Agent:
 
                 messages.append(msg)
                 self.history.append(msg)
+                turn_failed = False
+                turn_succeeded = False
                 for tc in msg["tool_calls"]:
                     fname = tc["function"]["name"]
                     args = tc["function"].get("arguments", {})
@@ -265,9 +317,23 @@ class Agent:
                             result = await func(**args) if asyncio.iscoroutinefunction(func) else func(**args)
                         except Exception as e:
                             result = f"Error: {e}"
+                    if _tool_result_failed(result):
+                        turn_failed = True
+                        last_failure = f"{fname}: {str(result)[:200]}"
+                    else:
+                        turn_succeeded = True
                     tool_msg = {"role": "tool", "name": fname, "args": args, "content": str(result)[:8000]}
                     messages.append(tool_msg)
                     self.history.append(tool_msg)
+
+                if turn_succeeded:
+                    consecutive_failures = 0
+                elif turn_failed:
+                    consecutive_failures += 1
+                    if consecutive_failures >= max_failures:
+                        return (f"[AGENT GAVE UP] {consecutive_failures} consecutive tool failures "
+                                f"(cap {max_failures}); the last failure was: {last_failure}. "
+                                "Stopped instead of looping forever.")
 
         return "Max tool loops reached"
 
@@ -561,8 +627,21 @@ async def run_multi_agent(task: str):
         try:
             await _get_pool()  # Ensure pool is initialized for memory_mgr
             lesson_txt = f"Task: {task}\nPlan: {plan[:500]}\nResult: {test_result[:500]}"
-            lesson_emb = await embed(lesson_txt[:500])
-            await memory_mgr.add_memory("lesson", lesson_txt, CURRENT_PROJECT, embedding=lesson_emb)
+            # Fingerprint Dedup (1): skip embedding if duplicate
+            fp = _fingerprint(lesson_txt)
+            pool = await _get_pool()
+            dup = False
+            if pool is not None:
+                try:
+                    async with pool.acquire() as conn:
+                        dup = await conn.fetchval("SELECT 1 FROM memory WHERE content_hash=$1 LIMIT 1", fp) is not None
+                except Exception:
+                    dup = False
+            if dup:
+                logger.info("[Memory] Dedup skip — lesson already exists hash=%s", fp[:12])
+            else:
+                lesson_emb = await embed(lesson_txt[:500])
+                await memory_mgr.add_memory("lesson", lesson_txt, CURRENT_PROJECT, embedding=lesson_emb)
         except Exception as e:
             logger.warning("Memory failed: %s", e)
 
@@ -623,14 +702,26 @@ async def run_multi_agent_stream(task: str) -> AsyncGenerator[Dict[str, Any], No
     except Exception as e:
         yield {"type": "warning", "message": f"Tester save failed: {e}"}
 
-    # 5. Memory Phase & Final Stream Completion
+    # 5. Memory Phase & Final Stream Completion — Fingerprint Dedup (1)
     if memory_mgr:
         try:
-            await _get_pool()  # Ensure pool is initialized for memory_mgr
+            await _get_pool()
             lesson_txt = f"Task: {task}\nPlan: {plan[:500]}\nResult: {test_result[:500]}"
-            lesson_emb = await embed(lesson_txt[:500])
-            await memory_mgr.add_memory("lesson", lesson_txt, CURRENT_PROJECT, embedding=lesson_emb)
-            yield {"type": "phase", "phase": "memory", "status": "completed", "message": "Lesson recorded in long-term memory"}
+            fp = _fingerprint(lesson_txt)
+            pool = await _get_pool()
+            dup = False
+            if pool is not None:
+                try:
+                    async with pool.acquire() as conn:
+                        dup = await conn.fetchval("SELECT 1 FROM memory WHERE content_hash=$1 LIMIT 1", fp) is not None
+                except Exception:
+                    dup = False
+            if dup:
+                yield {"type": "phase", "phase": "memory", "status": "completed", "message": f"Lesson deduplicated (already exists hash={fp[:12]})"}
+            else:
+                lesson_emb = await embed(lesson_txt[:500])
+                await memory_mgr.add_memory("lesson", lesson_txt, CURRENT_PROJECT, embedding=lesson_emb)
+                yield {"type": "phase", "phase": "memory", "status": "completed", "message": "Lesson recorded in long-term memory"}
         except Exception as e:
             yield {"type": "warning", "message": f"Memory save failed: {e}"}
 

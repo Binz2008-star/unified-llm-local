@@ -11,11 +11,18 @@ Files:
 import os
 import json
 import asyncio
+import hashlib
+import re
 import time
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Optional, Callable
 import asyncpg
+
+def _fingerprint(content: str) -> str:
+    """Fingerprint (1): normalize whitespace, sha256. Stable across runs."""
+    norm = re.sub(r'\s+', ' ', content.strip())
+    return hashlib.sha256(norm.encode('utf-8')).hexdigest()
 
 try:
     from watchdog.observers import Observer
@@ -99,8 +106,20 @@ class MemoryManager:
         pass
 
     async def add_memory(self, type: str, content: str, project_id: str = None, embedding=None):
-        """Add to both file and Neon"""
-        # Add to file
+        """Add to both file and Neon — with Fingerprint Dedup (1)"""
+        fp = _fingerprint(content)
+        # Dedup: check Neon first (saves embedding + file bloat)
+        if self.pool is not None:
+            try:
+                async with self.pool.acquire() as conn:
+                    existing = await conn.fetchval("SELECT id FROM memory WHERE content_hash = $1 LIMIT 1", fp)
+                    if existing is not None:
+                        # print(f"[Memory] Dedup skip — already exists id={existing} hash={fp[:12]}")
+                        return existing
+            except Exception:
+                pass  # if column missing or conn error, fall through to insert
+
+        # Add to file (only if not deduped)
         file_key = {"pattern": "patterns", "lesson": "lessons", "fact": "memory", "preference": "memory"}.get(type, "memory")
         path = self.files[file_key]
 
@@ -108,14 +127,28 @@ class MemoryManager:
         with open(path, 'a', encoding='utf-8') as f:
             f.write(entry)
 
-        # Add to Neon with embedding
+        # Add to Neon with embedding + content_hash (unique index guards race)
         if embedding and self.pool is not None:
             emb_str = "[" + ",".join(f"{x:.6f}" for x in embedding) + "]"
             async with self.pool.acquire() as conn:
-                await conn.execute("""
-                    INSERT INTO memory (type, content, project_id, embedding)
-                    VALUES ($1, $2, $3, $4::vector)
-                """, type, content, project_id, emb_str)
+                try:
+                    row = await conn.fetchrow("""
+                        INSERT INTO memory (type, content, project_id, embedding, content_hash)
+                        VALUES ($1, $2, $3, $4::vector, $5)
+                        ON CONFLICT (content_hash) DO NOTHING
+                        RETURNING id
+                    """, type, content, project_id, emb_str, fp)
+                    if row is None:
+                        # conflict — another writer inserted same hash concurrently
+                        existing = await conn.fetchval("SELECT id FROM memory WHERE content_hash=$1", fp)
+                        return existing
+                    return row["id"]
+                except Exception:
+                    # fallback if content_hash column/index missing (old DB)
+                    await conn.execute("""
+                        INSERT INTO memory (type, content, project_id, embedding)
+                        VALUES ($1, $2, $3, $4::vector)
+                    """, type, content, project_id, emb_str)
 
     async def search_memory(self, query_embedding, top_k=5):
         """Search long-term memory"""

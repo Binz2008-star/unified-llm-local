@@ -1,0 +1,25 @@
+{
+  "mode": "vector",
+  "run_id": "a1160c117692",
+  "n": 5,
+  "passed": 5,
+  "recall@1": 0.6,
+  "recall@3": 1.0,
+  "recall@8": 1.0,
+  "mrr": 0.8,
+  "elapsed_s": 5.3,
+  "run_at": "2026-09-05T18:51:15.181990+00:00",
+  "embed_model": "nomic-embed-text",
+  "golden": [
+    "rico-gmail-oauth",
+    "rico-jotform-signature",
+    "lvyy-domain",
+    "content-engine-youtube-auth",
+    "content-engine-publishing"
+  ],
+  "chunk_count": {
+    "content-engine": 1544,
+    "lvyy": 283,
+    "rico": 7750
+  }
+}

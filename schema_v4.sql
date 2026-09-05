@@ -58,13 +58,14 @@ CREATE TABLE IF NOT EXISTS conversations (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Long-term memory / lessons
+-- Long-term memory / lessons — Fingerprint Dedup (1): content_hash + unique index
 CREATE TABLE IF NOT EXISTS memory (
     id SERIAL PRIMARY KEY,
     type TEXT NOT NULL, -- pattern, lesson, preference, fact
     content TEXT NOT NULL,
     project_id TEXT,
     embedding vector(768),
+    content_hash TEXT, -- sha256(normalized content) for dedup
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -76,6 +77,7 @@ CREATE INDEX IF NOT EXISTS idx_chunks_v4_trgm ON chunks_v4 USING GIN (content gi
 CREATE INDEX IF NOT EXISTS idx_chunks_v4_project ON chunks_v4 (project_id, file_path);
 -- NOTE: no ANN index on memory - it's small and HNSW gave unreliable approximate recall
 CREATE INDEX IF NOT EXISTS idx_conversations_session ON conversations (session_id, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_content_hash ON memory(content_hash);
 
 -- Hybrid search function (RRF - Reciprocal Rank Fusion)
 -- Better than linear scoring: no normalization needed, robust to outliers, parameter-free

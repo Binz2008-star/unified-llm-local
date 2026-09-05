@@ -605,3 +605,6 @@ Read the full files, don't just look at diffs. The repo is on main at commit df0
 Return a concise list of confirmed bugs with file paths and line numbers. Only flag things you're confident are actual bugs.
 Plan: ERROR: model 'deepseek-r1:14b' not found
 Result: ERROR: model 'deepseek-r1:14b' not found
+
+## 2026-09-05 22:31 [lesson] second-brain
+DEDUP TEST unique content 7aa2fd58 - timestamp test

@@ -36,7 +36,12 @@ from pydantic import BaseModel
 
 import asyncpg
 import aiohttp
+import hashlib
+import re
 import psutil
+
+def _fingerprint(content: str) -> str:
+    return hashlib.sha256(re.sub(r'\s+', ' ', content.strip()).encode('utf-8')).hexdigest()
 
 ROOT = Path(__file__).parent
 load_dotenv(ROOT / ".env")
@@ -68,7 +73,7 @@ NEON_DSN = os.getenv("NEON_DSN") or os.getenv("DATABASE_URL")
 OLLAMA_EMBED_URL = os.getenv("OLLAMA_EMBED_URL", "http://127.0.0.1:11434/api/embed")
 OLLAMA_CHAT_URL = os.getenv("OLLAMA_CHAT_URL", "http://127.0.0.1:11434/api/chat")
 EMBED_MODEL = os.getenv("EMBED_MODEL", "nomic-embed-text")
-CHAT_MODEL = os.getenv("CHAT_MODEL", "deepseek-r1:14b")
+CHAT_MODEL = os.getenv("CHAT_MODEL", "qwen2.5:7b")
 
 ALLOWED_ORIGINS = [
     o.strip()
@@ -447,14 +452,21 @@ async def api_memory_list(limit: int = 50):
 @router.post("/memory")
 async def api_memory_add(req: MemoryRequest):
     proj = req.project_id or CURRENT_PROJECT
-    emb = await embed(req.content[:500])
-    emb_str = "[" + ",".join(f"{x:.6f}" for x in emb) + "]"
+    fp = _fingerprint(req.content)
     pool = await get_pool()
     async with pool.acquire() as conn:
+        existing = await conn.fetchval("SELECT id FROM memory WHERE content_hash=$1 LIMIT 1", fp)
+        if existing is not None:
+            return {"id": existing, "status": "deduped", "type": req.type, "project_id": proj, "deduplicated": True}
+        emb = await embed(req.content[:500])
+        emb_str = "[" + ",".join(f"{x:.6f}" for x in emb) + "]"
         mid = await conn.fetchval(
-            "INSERT INTO memory (type, content, project_id, embedding) VALUES ($1,$2,$3,$4::vector) RETURNING id",
-            req.type, req.content, proj, emb_str,
+            "INSERT INTO memory (type, content, project_id, embedding, content_hash) VALUES ($1,$2,$3,$4::vector,$5) ON CONFLICT (content_hash) DO NOTHING RETURNING id",
+            req.type, req.content, proj, emb_str, fp,
         )
+        if mid is None:
+            mid = await conn.fetchval("SELECT id FROM memory WHERE content_hash=$1", fp)
+            return {"id": mid, "status": "deduped", "type": req.type, "project_id": proj, "deduplicated": True}
     return {"id": mid, "status": "added", "type": req.type, "project_id": proj}
 
 

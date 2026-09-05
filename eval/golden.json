@@ -1,0 +1,52 @@
+[
+  {
+    "id": "rico-gmail-oauth",
+    "query": "How does rico exchange and refresh gmail oauth tokens?",
+    "expected": {
+      "project_id": "rico",
+      "file_contains": "src/services/gmail_oauth.py"
+    },
+    "description": "Rico gmail OAuth token exchange/refresh path",
+    "min_rank": 3
+  },
+  {
+    "id": "rico-jotform-signature",
+    "query": "How does the rico jotform webhook verify its signature?",
+    "expected": {
+      "project_id": "rico",
+      "file_contains": "src/rico_jotform_webhook.py"
+    },
+    "description": "Rico jotform webhook signature + identity mapping",
+    "min_rank": 3
+  },
+  {
+    "id": "lvyy-domain",
+    "query": "What are the central dependency-free domain types in the LVYY AI sales agent?",
+    "expected": {
+      "project_id": "lvyy",
+      "file_contains": "src/types/domain.ts"
+    },
+    "description": "LVYY central domain types",
+    "min_rank": 3
+  },
+  {
+    "id": "content-engine-youtube-auth",
+    "query": "How does content-engine refresh youtube oauth credentials?",
+    "expected": {
+      "project_id": "content-engine",
+      "file_contains": "src/robin_content_engine/youtube_auth.py"
+    },
+    "description": "Content-engine youtube oauth refresh",
+    "min_rank": 3
+  },
+  {
+    "id": "content-engine-publishing",
+    "query": "How does content-engine gate and publish a video to youtube?",
+    "expected": {
+      "project_id": "content-engine",
+      "file_contains": "src/robin_content_engine/publishing.py"
+    },
+    "description": "Content-engine youtube publishing/gating",
+    "min_rank": 3
+  }
+]

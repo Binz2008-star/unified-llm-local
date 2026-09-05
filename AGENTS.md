@@ -1,35 +1,35 @@
-# Unified LLM Agent - Evolving Instructions
+# Second Brain Agent - Evolving Instructions
 
-## Current Context
+## Current Context (auto-updated)
 
 ## Projects
-- content-engine: X:\content engine\Robin-Content-Engine-v2
-- rico: X:\rico\Rico-Your-AI-intelligent-job-hunt-partner-in-the-UAE
-- lvyy: C:\Users\loyal\lvyy-ai-sales-agent
-- second-brain: X:\unified-llm-local
+- content-engine: /app/projects/content-engine
+- lvyy: /app/projects/lvyy
+- rico: /app/projects/rico
+- second-brain: /app
 
-## System
-- API: http://localhost:8000
-- Chat: python sb.py chat
-- Agent: python sb.py agent "task"
-- Search: python sb.py search "query"
-- Database: Neon PostgreSQL + pgvector
-- Models: deepseek-r1:14b, nomic-embed-text
-- Ollama: http://127.0.0.1:11434
+## Learned Patterns
 
-## Rules
+## Lessons
+
+## Rules (evolve these as you learn):
 1. ALWAYS search_brain first before answering about code
 2. Switch project when task mentions different repo
 3. Create small diffs, test after
 4. Update MEMORY.md when you learn user preference
 5. If tool fails 2x, try alternative approach
-6. Ask before deleting files
-7. Commit with conventional commits
+6. Ask before deleting files (unless user said delete)
+7. Commit with conventional commits: feat:, fix:, docs:
 
 ## Self-Evolution
-- After each task, reflect on what worked/didn't
-- Add patterns to PATTERNS.md
-- Add failures to LESSONS.md
-- Update AGENTS.md for durable state
+- After each task, reflect: what worked, what didn't?
+- If you notice repeated pattern, add to PATTERNS.md
+- If you fail, add to LESSONS.md
+- You can rewrite your own tools in brain-agent-v4.py if needed (self-evolution)
 
-Last updated: 2026-09-05
+Last updated: 2026-09-04
+
+### Not done / next
+- Add streaming for agent tool calls in the Web UI
+- Auto-commit after successful task with conventional commit message
+- Add file watcher for MEMORY.md auto-reload
