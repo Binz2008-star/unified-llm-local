@@ -23,10 +23,12 @@ A local-first, AI-powered knowledge base that indexes your code, enables semanti
 ```bash
 # Prerequisites
 # - Python 3.12+ (global)
-# - Ollama running locally with: deepseek-r1:14b, nomic-embed-text
-# - Neon PostgreSQL with pgvector (DSN in .env)
+# - Ollama running locally with: qwen2.5:7b (4.7GB, 32K ctx) + nomic-embed-text (768d)
+#   (also have deepseek-r1:14b 9GB if you need reasoning; pull with: ollama pull qwen2.5:7b)
+# - Dual-pool DB: Neon Cloud (memory/bugs) + local pgvector Docker (chunks_v4 9,577) — see .env.example
+# - Copy env: cp .env.example .env && fill NEON_DSN
 
-cd X:\second-brain-kb
+cd X:\unified-llm-local  # git repo (live MCP also at X:\second-brain-kb — keep synced)
 
 # Install dependencies
 pip install -r requirements.txt
@@ -73,16 +75,17 @@ open http://localhost:3000
 docker compose down
 ```
 
-Environment variables in `.env`:
+Environment variables in `.env` (see `.env.example` for full dual-pool template):
 ```env
-NEON_DSN=postgresql://...
+NEON_DSN=postgresql://neondb_owner:xxx@ep-xxx.neon.tech/neondb?sslmode=require
+LOCAL_DSN=postgresql://postgres:password@localhost:5432/second_brain
 OLLAMA_EMBED_URL=http://127.0.0.1:11434/api/embed
 OLLAMA_CHAT_URL=http://127.0.0.1:11434/api/chat
-ARCHITECT_MODEL=deepseek-r1:14b
-EDITOR_MODEL=deepseek-r1:14b
-CHAT_MODEL=deepseek-r1:14b
+ARCHITECT_MODEL=qwen2.5:7b
+EDITOR_MODEL=qwen2.5:7b
+CHAT_MODEL=qwen2.5:7b
 EMBED_MODEL=nomic-embed-text
-CURRENT_PROJECT=lvyy
+CURRENT_PROJECT=rico
 PROJECT_CONTENT_ENGINE=X:\content engine\Robin-Content-Engine-v2
 PROJECT_LVYY=C:\Users\loyal\lvyy-ai-sales-agent
 PROJECT_RICO=X:\rico\Rico-Your-AI-intelligent-job-hunt-partner-in-the-UAE
@@ -106,10 +109,13 @@ PROJECT_RICO=X:\rico\Rico-Your-AI-intelligent-job-hunt-partner-in-the-UAE
 │  - JS/TS (tree-sitter)        │  - Neon pgvector            │
 │  - Hybrid search SQL          │  - File watcher (watchdog)  │
 ├─────────────────────────────────────────────────────────────┤
-│  Neon PostgreSQL (chunks_v4, code_graph, memory, conversations)│
-│  Ollama (deepseek-r1:14b, nomic-embed-text)                   │
+│  LOCAL pgvector :5432 (chunks_v4 9,577 HNSW, code_graph 1,352)  │
+│  Neon Cloud (memory 17, conversations, bugs, projects)          │
+│  Ollama qwen2.5:7b (32K) + nomic-embed-text (768d)               │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+> **Perfect dev setup:** `make setup` → `make test` (ruff + pytest + `eval/run_golden.py` 12/12) → `make docker` — see `CONTRIBUTING.md` and `Makefile`.
 
 ## Core Components
 
@@ -197,6 +203,18 @@ Key tables:
 | HNSW recall miss on `memory` | Table is small - uses exact brute-force |
 | File watcher not starting | `pip install watchdog` |
 | Tree-sitter parse errors | Falls back to generic chunker |
+
+## Development (Perfect System)
+
+```bash
+make setup   # venv + deps + ollama check
+make test    # ruff + pytest + golden eval (CI gate: Recall@3 100% MRR≥0.85)
+make eval    # vector vs hybrid RRF
+make reindex # --scan or --project rico
+make docker  # build + healthcheck
+```
+
+See `CONTRIBUTING.md`, `Makefile`, `ruff.toml`, `pyproject.toml`, `.pre-commit-config.yaml` — all wired to CI `lint/test/build` (green without secrets).
 
 ## License
 

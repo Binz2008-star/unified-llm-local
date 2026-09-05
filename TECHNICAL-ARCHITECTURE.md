@@ -318,14 +318,89 @@ PROJECT_RICO=X:\rico\Rico-Your-AI-intelligent-job-hunt-partner-in-the-UAE
 SECOND_BRAIN_AGENTS_MD=C:\Users\loyal\.config\opencode\AGENTS.md
 ```
 
-## Known Limitations
+## Dual-Pool Architecture (v4.1+)
 
-1. **Single model**: Only `deepseek-r1:14b` available locally for all agents
-2. **Chat timeout**: deepseek-r1:14b slow (~2-5 min); 600s timeout + retries
-3. **No HNSW on `memory`**: Exact search (table < 100 rows)
-4. **Tree-sitter fallback**: Falls back to generic chunker on parse errors
-5. **No auth on API**: CORS `*` for local dev only
-6. **Windows paths**: Hardcoded in `.env`; use env vars for portability
+Second Brain v4.1+ splits storage across two PostgreSQL instances:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Second Brain v4.1+                           │
+├─────────────────────────────────────────────────────────────────┤
+│  LOCAL POOL (pgvector via Docker)          │  NEON POOL (Cloud) │
+│  ───────────────────────────────           │  ─────────────────  │
+│  LOCAL_DSN → localhost:5432                │  NEON_DSN → Cloud   │
+│                                            │                     │
+│  • chunks_v4 (10,404 rows, HNSW)           │  • memory (17 rows) │
+│  • code_graph (1,352 edges)                │  • bugs (new)       │
+│  • Vector search (HNSW, m=16)              │  • conversations    │
+│  • Keyword search (tsvector + trigram)     │  • projects         │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Routing Logic:**
+| Operation | Pool | Tables |
+|-----------|------|--------|
+| `search_brain()` | Local | `chunks_v4` |
+| `agent_task` (code search) | Local | `chunks_v4`, `code_graph` |
+| `save_conversation()` | Neon | `conversations` |
+| `memory_mgr` (lessons/patterns) | Neon | `memory` |
+| `bug_*` MCP tools | Neon | `bugs` |
+| `bug_scan()` chunks search | Local | `chunks_v4` |
+| `bug_scan()` bug creation | Neon | `bugs` |
+
+**Benefits:**
+- Large vector index (10K+ chunks, 768-dim) stays local — fast, free, no egress
+- Small metadata tables (memory, bugs, conversations) centralized on Neon for multi-machine sync
+- HNSW index only on local pool (Neon pool too small to benefit)
+
+## Model Configuration (Corrected v4.1)
+
+**Runtime Reality:** Ollama serves `qwen2.5:7b` (4.7 GB, 32K context), `deepseek-r1:14b` (9 GB, 128K context), `nomic-embed-text` (274 MB). **No `qwen2.5-coder:14b` is pulled.**
+
+```env
+# .env (local runtime)
+OLLAMA_EMBED_URL=http://127.0.0.1:11434/api/embed
+OLLAMA_CHAT_URL=http://127.0.0.1:11434/api/chat
+ARCHITECT_MODEL=qwen2.5:7b
+EDITOR_MODEL=qwen2.5:7b
+CHAT_MODEL=qwen2.5:7b
+EMBED_MODEL=nomic-embed-text
+LOCAL_DSN=postgresql://postgres:password@localhost:5432/second_brain
+NEON_DSN=postgresql://neondb_owner:...@ep-empty-paper-.../neondb?sslmode=require
+```
+
+**All context budgets sized for 32K (qwen2.5:7b), not 128K.**
+
+## RAG Pipeline Audit (v4.1 — Sep 2026)
+
+### P0 (Immediate — Wire Before Re-index)
+1. **Hybrid Search Wiring** — `hybrid_search()` RRF exists in Postgres but `search_brain()` calls vector-only. Wire `search_brain()` → `hybrid_search()` + add SQL-side `project_id`/`language`/`chunk_type` filters.
+2. **Token-Budget Context Builder** — Replace `.content[:800]` slice with budget-aware builder (dedup, attribution, 32K model budget).
+
+### P1 (Before Next Re-index)
+3. **Cleaning** — Purge stale/noise (playwright-report, archive dirs, package-lock.json, minified/generated files, license headers). Add `should_index()` gate + delete stale rows on every run.
+4. **Chunking v2** — Token-capped (512 tok code / 800 doc / 1000 config), fix TS/TSX AST (2,259 stale chunks), split monoliths (>2000 tokens), full re-index.
+5. **Eval Expansion** — 15-20 goldens (add symbol lookup, error-string, cross-project, TS symbols), auto-run `--hybrid` after every re-index, fail if Recall@3 < 1.0 or MRR < 0.85.
+
+### P2
+6. **Incremental Ingest** — Add `last_modified` to `chunks_v4`, diff-driven re-index (sha256 vs `content_hash`), optionally index `second-brain` itself.
+
+### P3
+7. **Rerank** — `bge-reranker-v2-m3` (2.5GB VRAM) top-50→8, behind env flag, eval A/B.
+8. **Embed Batch** — BATCH 16→64, query embedding cache. Embedder swap (bge-m3) only if full re-embed accepted.
+
+---
+
+## Known Limitations (Updated)
+
+1. **Model**: Runtime uses `qwen2.5:7b` (32K ctx), not `qwen2.5-coder:14b` (128K). All budgets sized for 32K.
+2. **Chat timeout**: `qwen2.5:7b` fast (~10-30s); `OLLAMA_TIMEOUT=300` default.
+3. **No HNSW on Neon `memory`**: Exact search (table < 100 rows).
+4. **Tree-sitter fallback**: TS/TSX currently generic — fix via re-index (P1-4).
+5. **No auth on API**: CORS `*` for local dev only.
+6. **Windows paths**: Hardcoded in `.env`; use env vars for portability.
+7. **Dual-pool sync**: Local pgvector must be running for code search; Neon for memory/bugs.
+8. **Two divergent copies**: `X:\unified-llm-local` (git) vs `X:\second-brain-kb` (live) — sync before builds.
 
 ## Performance
 
