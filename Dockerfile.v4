@@ -13,7 +13,6 @@ COPY --from=builder /install /usr/local
 COPY api.py brain_agent_v4.py memory.py evolve.py sb.py reindex_v4.py chunker_v4.py schema_v4.sql AGENTS.md EVOLVE_TODO.md ./
 COPY eval/ eval/
 COPY ui/ ui/
-COPY memory/ memory/
 RUN mkdir -p /app/memory /app/logs /app/ui /app/eval /app/projects
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=30s CMD curl -f http://localhost:8000/api/status || exit 1
