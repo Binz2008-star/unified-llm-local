@@ -1,0 +1,14 @@
+[project]
+name = "second-brain-kb"
+version = "4.0.0"
+description = "Local-first code knowledge base — dual-pool pgvector + Neon"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "eval"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"

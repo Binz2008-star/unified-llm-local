@@ -1,14 +1,14 @@
 {
   "mode": "vector",
-  "run_id": "a1160c117692",
+  "run_id": "fbb39b247c6d",
   "n": 5,
   "passed": 5,
   "recall@1": 0.6,
   "recall@3": 1.0,
   "recall@8": 1.0,
   "mrr": 0.8,
-  "elapsed_s": 5.3,
-  "run_at": "2026-09-05T18:51:15.181990+00:00",
+  "elapsed_s": 5.1,
+  "run_at": "2026-09-05T20:52:32.150042+00:00",
   "embed_model": "nomic-embed-text",
   "golden": [
     "rico-gmail-oauth",

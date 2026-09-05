@@ -36,7 +36,14 @@ hf_cache/
 pgdata/
 ollama_data/
 .env.prod
+.env.prod.example
 data.json
+# Secrets — never commit real env
+.env
+*.pem
+*.key
+client_secret*.json
+token.json
 
 # Node.js
 node_modules/

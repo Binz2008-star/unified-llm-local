@@ -1,8 +1,7 @@
 services:
-  # 1. Containerized pgvector
   db:
     image: pgvector/pgvector:pg16
-    container_name: db
+    container_name: second-brain-db
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
@@ -10,7 +9,6 @@ services:
     volumes:
       - ./pgdata:/var/lib/postgresql/data
       - ./schema_v4.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-      - ./database/schema_v4_memory.sql:/docker-entrypoint-initdb.d/02-memory.sql:ro
     ports:
       - "5432:5432"
     healthcheck:
@@ -19,10 +17,9 @@ services:
       timeout: 5s
       retries: 5
 
-  # 2. Containerized Ollama
   ollama:
     image: ollama/ollama:latest
-    container_name: ollama
+    container_name: second-brain-ollama
     volumes:
       - ./ollama_data:/root/.ollama
     ports:
@@ -33,19 +30,19 @@ services:
       timeout: 5s
       retries: 5
 
-  # 3. The FastAPI / React OS
   second-brain-v4:
     build: { context: ., dockerfile: Dockerfile.v4 }
     container_name: second-brain-v4
     env_file: .env.prod
     environment:
-      # Route traffic to the internal containers instead of host
       - OLLAMA_EMBED_URL=http://ollama:11434/api/embed
       - OLLAMA_CHAT_URL=http://ollama:11434/api/chat
+      - LOCAL_DSN=postgresql://postgres:password@db:5432/second_brain
       - DATABASE_URL=postgresql://postgres:password@db:5432/second_brain
-      - ARCHITECT_MODEL=deepseek-r1:14b
-      - EDITOR_MODEL=deepseek-r1:14b
-      - CHAT_MODEL=deepseek-r1:14b
+      - NEON_DSN=${NEON_DSN:-}
+      - ARCHITECT_MODEL=qwen2.5:7b
+      - EDITOR_MODEL=qwen2.5:7b
+      - CHAT_MODEL=qwen2.5:7b
       - EMBED_MODEL=nomic-embed-text
       - PROJECT_CONTENT_ENGINE=/app/projects/content-engine
       - PROJECT_LVYY=/app/projects/lvyy
@@ -59,10 +56,8 @@ services:
       - ./ui:/app/ui:ro
     ports: ["8000:8000"]
     depends_on:
-      db:
-        condition: service_healthy
-      ollama:
-        condition: service_healthy
+      db: { condition: service_healthy }
+      ollama: { condition: service_healthy }
     restart: unless-stopped
     command: python api.py
     healthcheck:
@@ -70,5 +65,4 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
-
+      start_period: 30s

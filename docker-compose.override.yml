@@ -1,55 +1,12 @@
-# Override to use host Ollama + containerized DB
+# Override: host Ollama + containerized DB (dev default)
+# Usage: docker compose -f docker-compose.v4.yml -f docker-compose.override.yml up
 services:
   second-brain-v4:
-    build: { context: ., dockerfile: Dockerfile.v4 }
-    container_name: second-brain-v4
-    env_file: .env.prod
     environment:
       - OLLAMA_EMBED_URL=http://host.docker.internal:11434/api/embed
       - OLLAMA_CHAT_URL=http://host.docker.internal:11434/api/chat
+      - LOCAL_DSN=postgresql://postgres:password@db:5432/second_brain
       - DATABASE_URL=postgresql://postgres:password@db:5432/second_brain
-      - ARCHITECT_MODEL=deepseek-r1:14b
-      - EDITOR_MODEL=deepseek-r1:14b
-      - CHAT_MODEL=deepseek-r1:14b
-      - EMBED_MODEL=nomic-embed-text
-      - PROJECT_CONTENT_ENGINE=/app/projects/content-engine
-      - PROJECT_LVYY=/app/projects/lvyy
-      - PROJECT_RICO=/app/projects/rico
-    volumes:
-      - ${PROJECT_CONTENT_ENGINE_HOST:-./projects/content-engine}:/app/projects/content-engine:ro
-      - ${PROJECT_LVYY_HOST:-./projects/lvyy}:/app/projects/lvyy:ro
-      - ${PROJECT_RICO_HOST:-./projects/rico}:/app/projects/rico:ro
-      - ./memory:/app/memory
-      - ./logs:/app/logs
-      - ./ui:/app/ui:ro
-    ports: ["8000:8000"]
-    depends_on:
-      db:
-        condition: service_healthy
-    restart: unless-stopped
-    command: python api.py
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/status"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
 
   db:
-    image: pgvector/pgvector:pg16
-    container_name: db
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: second_brain
-    volumes:
-      - ./pgdata:/var/lib/postgresql/data
-      - ./schema_v4.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-      - ./database/schema_v4_memory.sql:/docker-entrypoint-initdb.d/02-memory.sql:ro
-    ports:
-      - "5432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d second_brain"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+    ports: ["5432:5432"]
