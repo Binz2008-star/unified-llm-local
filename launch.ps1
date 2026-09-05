@@ -1,3 +1,3 @@
 cd X:\unified-llm-local
-Start-Process python -ArgumentList "api.py" -WindowStyle Hidden
-Write-Host "Unified LLM Local running on http://localhost:8000"
+docker compose -f docker-compose.v4.yml up -d
+Write-Host "Running! Dashboard: http://localhost:3000 | API: http://localhost:8000"
