@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: ["main"]
+    branches: ["master", "main"]
   pull_request:
-    branches: ["main", "test-env", "feat/**"]
+    branches: ["master", "main", "test-env", "feat/**"]
   schedule:
     - cron: "0 2 * * 0" # weekly
   workflow_dispatch:
