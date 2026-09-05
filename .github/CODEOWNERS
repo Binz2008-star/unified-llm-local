@@ -1,0 +1,8 @@
+# Default owners for everything
+* @Binz2008-star
+
+# Sensitive paths require explicit review
+/.env.example @Binz2008-star
+/.github/workflows/ @Binz2008-star
+/api.py @Binz2008-star
+/brain_agent_v4.py @Binz2008-star

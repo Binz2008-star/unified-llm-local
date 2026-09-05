@@ -1,0 +1,6 @@
+{
+  "name": "Code It - Intelligence Console",
+  "description": "منصة ذكاء اصطناعي هندسية متقدمة لتوليد الأكواد وتحليل الأنظمة مع تتبع مسار التفكير ومعاينة الأكواد التفاعلية.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

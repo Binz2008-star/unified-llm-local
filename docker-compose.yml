@@ -1,0 +1,84 @@
+services:
+  # Second Brain v4 - Python FastAPI Backend
+  second-brain:
+    build:
+      context: .
+      dockerfile: Dockerfile.v4
+    container_name: second-brain-kb
+    env_file:
+      - .env
+    environment:
+      - WATCHDOG_POLLING=true
+      - PYTHONUNBUFFERED=1
+      - OLLAMA_EMBED_URL=http://host.docker.internal:11434/api/embed
+      - OLLAMA_CHAT_URL=http://host.docker.internal:11434/api/chat
+      - EMBED_MODEL=nomic-embed-text
+      - EMBED_MODEL_HF=Salesforce/SFR-Embedding-Code-400M_R
+      - HF_TOKEN=${HF_TOKEN}
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
+      - HUGGINGFACE_HUB_CACHE=/root/.cache/huggingface
+      - USE_HF_EMBEDDING=true
+      - EMBED_DIM=1024
+      - CHAT_MODEL=qwen2.5-coder:32b
+      - HF_HOME=/root/.cache/huggingface
+      - PROJECT_CONTENT_ENGINE=/app/projects/content-engine
+      - PROJECT_LVYY=/app/projects/lvyy
+      - PROJECT_RICO=/app/projects/rico
+      - DATA_JSON_PATH=/app/ai-dashboard/data.json
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - type: bind
+        source: X:\content engine\Robin-Content-Engine-v2
+        target: /app/projects/content-engine
+        read_only: true
+      - type: bind
+        source: C:\Users\loyal\lvyy-ai-sales-agent
+        target: /app/projects/lvyy
+        read_only: true
+      - type: bind
+        source: X:\rico
+        target: /app/projects/rico
+        read_only: true
+      - ./logs:/app/logs
+      - ./hf_cache:/root/.cache/huggingface
+      - ./ingest_hf.py:/app/ingest_hf.py:ro
+      - ./ingest.py:/app/ingest.py:ro
+      - ./brain_agent_v4.py:/app/brain_agent_v4.py:ro
+      - ./api.py:/app/api.py:ro
+      - ./memory.py:/app/memory.py:ro
+      - ./evolve.py:/app/evolve.py:ro
+      - ./mcp_server_v4.py:/app/mcp_server_v4.py:ro
+      - ./sb.py:/app/sb.py:ro
+      - ./reindex_v4.py:/app/reindex_v4.py:ro
+      - ./migrate_v4.py:/app/migrate_v4.py:ro
+      - ./v4-extract:/app/v4-extract:ro
+      - ./ui:/app/ui:ro
+      - ./ai-dashboard:/app/ai-dashboard
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    command: python brain_agent_v4.py --serve
+
+  # Code It Dashboard - Node.js Frontend + API Proxy
+  code-it-dashboard:
+    build:
+      context: ./ai-dashboard
+      dockerfile: Dockerfile
+    container_name: code-it-dashboard
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - BRAIN_API_URL=http://second-brain:8000
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - second-brain
+    restart: unless-stopped
+
+networks:
+  default:
+    name: second-brain-network

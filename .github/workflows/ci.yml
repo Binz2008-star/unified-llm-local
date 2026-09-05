@@ -1,0 +1,35 @@
+name: ROBEN AI Console CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js Environment (Node 22 LTS)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: ai-dashboard/package-lock.json
+
+      - name: Install Dependencies (ai-dashboard)
+        working-directory: ai-dashboard
+        run: npm ci
+
+      - name: Verify TypeScript Compilation (ai-dashboard)
+        working-directory: ai-dashboard
+        run: npm run lint
+
+      - name: Test Project Build (ai-dashboard)
+        working-directory: ai-dashboard
+        run: npm run build

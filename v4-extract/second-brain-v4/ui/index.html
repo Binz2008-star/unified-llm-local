@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Second Brain v4</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: 'SF Mono', monospace; background: #0a0a0a; color: #e0e0e0; display: flex; height: 100vh; }
+  .sidebar { width: 260px; background: #111; border-right: 1px solid #222; padding: 20px; display: flex; flex-direction: column; }
+  .logo { font-size: 18px; font-weight: bold; margin-bottom: 20px; }
+  .project { padding: 8px 12px; border-radius: 6px; cursor: pointer; margin: 4px 0; }
+  .project.active { background: #1a1a1a; border: 1px solid #333; }
+  .project:hover { background: #1a1a1a; }
+  .main { flex:1; display: flex; flex-direction: column; }
+  .topbar { padding: 12px 20px; border-bottom: 1px solid #222; display: flex; gap: 12px; align-items: center; }
+  .search-box { flex:1; background: #111; border: 1px solid #222; border-radius: 8px; padding: 10px 14px; color: white; outline: none; }
+  .search-box:focus { border-color: #444; }
+  .content { flex:1; overflow-y: auto; padding: 20px; display: flex; gap: 20px; }
+  .results { flex:1; }
+  .chat { width: 400px; background: #111; border-left: 1px solid #222; display: flex; flex-direction: column; }
+  .chunk { background: #111; border: 1px solid #222; border-radius: 8px; padding: 14px; margin-bottom: 12px; }
+  .chunk-meta { font-size: 11px; color: #666; margin-bottom: 8px; }
+  .chunk-content { font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
+  .chat-messages { flex:1; overflow-y: auto; padding: 16px; }
+  .msg { margin-bottom: 12px; padding: 10px; border-radius: 8px; font-size: 13px; }
+  .msg.user { background: #1a1a1a; }
+  .msg.assistant { background: #111; border: 1px solid #222; }
+  .chat-input { display: flex; padding: 12px; border-top: 1px solid #222; gap: 8px; }
+  .chat-input input { flex:1; background: #0a0a0a; border: 1px solid #222; border-radius: 6px; padding: 8px 12px; color: white; outline: none; }
+  button { background: #222; border: 1px solid #333; color: white; padding: 8px 14px; border-radius: 6px; cursor: pointer; }
+  button:hover { background: #2a2a2a; }
+  .status { font-size: 11px; color: #666; margin-top: auto; }
+</style>
+</head>
+<body>
+<div class="sidebar">
+  <div class="logo">🧠 Second Brain v4</div>
+  <div id="projects"></div>
+  <div class="status" id="status">Loading...</div>
+</div>
+<div class="main">
+  <div class="topbar">
+    <input class="search-box" id="searchInput" placeholder="Search brain... (e.g. auth middleware, clip selector)" onkeydown="if(event.key==='Enter') doSearch()">
+    <button onclick="doSearch()">Search</button>
+    <button onclick="doAgent()">Agent</button>
+  </div>
+  <div class="content">
+    <div class="results" id="results">
+      <div style="color:#666; margin-top: 40px; text-align:center;">Search to see code chunks<br><br>Try: "how is auth handled" or "clip selector logic"</div>
+    </div>
+    <div class="chat" id="chatPanel">
+      <div class="chat-messages" id="chatMessages">
+        <div class="msg assistant">Hi! I'm your second brain with full repo memory. Ask me anything about your code.</div>
+      </div>
+      <div class="chat-input">
+        <input id="chatInput" placeholder="Ask brain..." onkeydown="if(event.key==='Enter') doChat()">
+        <button onclick="doChat()">Send</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let currentProject = null;
+
+async function loadStatus() {
+  try {
+    const res = await fetch('/status');
+    const data = await res.json();
+    document.getElementById('status').innerHTML = `📊 ${data.chunks || 0} chunks<br>📁 ${Object.keys(data.projects || {}).length} projects`;
+    
+    const projDiv = document.getElementById('projects');
+    projDiv.innerHTML = '';
+    for (const [id, count] of Object.entries(data.projects || {})) {
+      const div = document.createElement('div');
+      div.className = 'project' + (id === currentProject ? ' active' : '');
+      div.textContent = `${id} (${count})`;
+      div.onclick = () => { currentProject = id; loadStatus(); };
+      projDiv.appendChild(div);
+    }
+  } catch(e) {
+    document.getElementById('status').textContent = 'API offline';
+  }
+}
+
+async function doSearch() {
+  const q = document.getElementById('searchInput').value;
+  if (!q) return;
+  const resultsDiv = document.getElementById('results');
+  resultsDiv.innerHTML = '🔍 Searching...';
+  
+  try {
+    const res = await fetch('/search', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({query: q, top_k: 8})
+    });
+    const data = await res.json();
+    
+    if (!data.results || data.results.length === 0) {
+      resultsDiv.innerHTML = '<div style="color:#666">No results. Indexing may still be in progress.</div>';
+      return;
+    }
+    
+    resultsDiv.innerHTML = `<div style="margin-bottom:12px; color:#666;">Found ${data.results.length} chunks for "${q}"</div>` +
+      data.results.map(r => `
+        <div class="chunk">
+          <div class="chunk-meta">[${r.project}/${r.file}] score=${(r.score||0).toFixed(3)}</div>
+          <div class="chunk-content">${escapeHtml(r.content)}</div>
+        </div>
+      `).join('');
+  } catch(e) {
+    resultsDiv.innerHTML = `<div style="color:#f55">Error: ${e.message}</div>`;
+  }
+}
+
+async function doChat() {
+  const input = document.getElementById('chatInput');
+  const q = input.value;
+  if (!q) return;
+  input.value = '';
+  
+  const messagesDiv = document.getElementById('chatMessages');
+  messagesDiv.innerHTML += `<div class="msg user">${escapeHtml(q)}</div>`;
+  messagesDiv.innerHTML += `<div class="msg assistant" id="temp">Thinking...</div>`;
+  messagesDiv.scrollTop = messagesDiv.scrollHeight;
+  
+  try {
+    const res = await fetch('/chat', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({query: q, top_k: 6})
+    });
+    const data = await res.json();
+    
+    document.getElementById('temp').remove();
+    messagesDiv.innerHTML += `<div class="msg assistant">${escapeHtml(data.answer)}</div>`;
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    
+    // Also show context used
+    if (data.context_used) {
+      document.getElementById('results').innerHTML = `<div style="color:#666">Used ${data.context_used} chunks for chat</div>`;
+    }
+  } catch(e) {
+    document.getElementById('temp').textContent = `Error: ${e.message}`;
+  }
+}
+
+async function doAgent() {
+  const q = document.getElementById('searchInput').value || prompt('Agent task:');
+  if (!q) return;
+  
+  if (!confirm(`Run multi-agent task: "${q}"? This can create/edit files.`)) return;
+  
+  const resultsDiv = document.getElementById('results');
+  resultsDiv.innerHTML = '🚀 Running multi-agent (Architect + Editor + Tester)... Check terminal for live logs.';
+  
+  try {
+    const res = await fetch('/agent', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({task: q})
+    });
+    const data = await res.json();
+    resultsDiv.innerHTML = `<div class="msg assistant">✅ Task complete: ${escapeHtml(JSON.stringify(data, null, 2))}</div>`;
+  } catch(e) {
+    resultsDiv.innerHTML = `<div style="color:#f55">Error: ${e.message}</div>`;
+  }
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+loadStatus();
+setInterval(loadStatus, 10000);
+</script>
+</body>
+</html>

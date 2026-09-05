@@ -1,0 +1,11 @@
+asyncpg
+aiohttp
+python-dotenv
+tiktoken
+watchdog
+rich
+sentence-transformers
+torch
+fastapi
+uvicorn
+mcp

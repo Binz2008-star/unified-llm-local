@@ -1,0 +1,40 @@
+services:
+  second-brain-v4:
+    build:
+      context: .
+      dockerfile: Dockerfile.v4
+    container_name: second-brain-v4
+    env_file: .env
+    environment:
+      - OLLAMA_EMBED_URL=http://host.docker.internal:11434/api/embed
+      - OLLAMA_CHAT_URL=http://host.docker.internal:11434/api/chat
+      - PROJECT_CONTENT_ENGINE=/app/projects/content-engine
+      - PROJECT_LVYY=/app/projects/lvyy
+      - PROJECT_RICO=/app/projects/rico
+      - ARCHITECT_MODEL=deepseek-r1:14b-16k
+      - EDITOR_MODEL=qwen2.5-coder:14b-16k
+    volumes:
+      - "X:/content engine/Robin-Content-Engine-v2:/app/projects/content-engine:ro"
+      - "C:/Users/loyal/lvyy-ai-sales-agent:/app/projects/lvyy:ro"
+      - "./memory:/app/memory"
+      - "./logs:/app/logs"
+    ports:
+      - "8000:8000"  # API + Web UI
+    restart: unless-stopped
+    command: python api.py
+
+  # Keep old v3 running for fallback
+  second-brain-kb:
+    build:
+      context: ../second-brain-kb
+      dockerfile: Dockerfile
+    container_name: second-brain-kb
+    env_file: ../second-brain-kb/.env
+    environment:
+      - OLLAMA_EMBED_URL=http://host.docker.internal:11434/api/embed
+      - PROJECT_CONTENT_ENGINE=/app/projects/content-engine
+      - PROJECT_LVYY=/app/projects/lvyy
+    volumes:
+      - "X:/content engine/Robin-Content-Engine-v2:/app/projects/content-engine:ro"
+      - "C:/Users/loyal/lvyy-ai-sales-agent:/app/projects/lvyy:ro"
+    restart: unless-stopped

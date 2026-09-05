@@ -1,0 +1,15 @@
+.venv
+hf_cache
+__pycache__
+*.pyc
+*.pyo
+.git
+logs
+memory
+second-brain-v4.zip
+*.bak-v3
+.dockerignore
+ai-dashboard
+install_all_mcps.ps1
+Mcp-All.json
+Opencode-Final.json

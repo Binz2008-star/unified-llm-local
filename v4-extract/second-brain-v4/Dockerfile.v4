@@ -1,0 +1,23 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system deps
+RUN apt-get update && apt-get install -y git curl && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Install v4 extra deps
+RUN pip install --no-cache-dir fastapi uvicorn python-multipart jinja2
+
+# Copy app
+COPY . .
+
+# Create dirs
+RUN mkdir -p /app/memory /app/logs /app/ui
+
+EXPOSE 8000
+
+CMD ["python", "api.py"]

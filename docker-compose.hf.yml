@@ -1,0 +1,40 @@
+﻿services:
+  second-brain:
+    build: .
+    container_name: second-brain-kb
+    env_file:
+      - .env
+    environment:
+      - WATCHDOG_POLLING=true
+      - PYTHONUNBUFFERED=1
+      - OLLAMA_EMBED_URL=http://host.docker.internal:11434/api/embed
+      - OLLAMA_CHAT_URL=http://host.docker.internal:11434/api/chat
+      - EMBED_MODEL=nomic-embed-text
+      - EMBED_MODEL_HF=Salesforce/SFR-Embedding-Code-400M_R
+      - HF_TOKEN=${HF_TOKEN}
+      - USE_HF_EMBEDDING=true
+      - EMBED_DIM=768
+      - CHAT_MODEL=qwen2.5-coder:32b
+      - PROJECT_CONTENT_ENGINE=/app/projects/content-engine
+      - PROJECT_LVYY=/app/projects/lvyy
+      - PROJECT_RICO=/app/projects/rico
+      - HF_HOME=/root/.cache/huggingface
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - type: bind
+        source: X:\content engine\Robin-Content-Engine-v2
+        target: /app/projects/content-engine
+        read_only: true
+      - type: bind
+        source: C:\Users\loyal\lvyy-ai-sales-agent
+        target: /app/projects/lvyy
+        read_only: true
+      - type: bind
+        source: X:\rico
+        target: /app/projects/rico
+        read_only: true
+      - ./logs:/app/logs
+      - ./hf_cache:/root/.cache/huggingface
+    restart: unless-stopped
+    command: python ingest_hf.py

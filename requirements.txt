@@ -1,0 +1,18 @@
+# CPU-only, no CUDA bloat - Heimdall style (zero GPU)
+--extra-index-url https://download.pytorch.org/whl/cpu
+asyncpg
+aiohttp
+watchdog
+tiktoken
+python-dotenv
+rich
+pathspec
+sentence-transformers
+huggingface_hub
+torch --index-url https://download.pytorch.org/whl/cpu
+tree-sitter
+tree-sitter-python
+tree-sitter-javascript
+tree-sitter-typescript
+psutil
+patch-ng

@@ -1,0 +1,54 @@
+# Local-stack override: run Ollama + PostgreSQL/pgvector INSIDE Docker.
+#
+# Usage (opt-in - base keeps host Ollama + cloud Neon):
+#   docker compose -f docker-compose.v4.yml -f docker-compose.local.yml up -d --build
+#
+#   - Second Brain API/Web UI on :8000
+#   - Ollama on :11434 (container; CPU/GPU via Docker Desktop WSL2)
+#   - pgvector on :5432 (init schema from schema_v4.sql on first boot)
+#
+# The base file's `environment:` values are overridden here so the app talks
+# to the containerized services instead of host.docker.internal / Neon.
+services:
+  second-brain-v4:
+    environment:
+      - NEON_DSN=postgres://postgres:postgres@db:5432/second_brain
+      - OLLAMA_EMBED_URL=http://ollama:11434/api/embed
+      - OLLAMA_CHAT_URL=http://ollama:11434/api/chat
+    depends_on:
+      db:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    volumes:
+      - ollama:/root/.ollama
+    ports:
+      - "11434:11434"
+    restart: unless-stopped
+
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: second-brain-db
+    environment:
+      - POSTGRES_DB=second_brain
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./schema_v4.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d second_brain"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  ollama:
+  pgdata:

@@ -1,0 +1,48 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+env/
+.venv/
+*.log
+*.sqlite
+*.db
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+*.egg-info/
+dist/
+build/
+.coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Hugging Face cache and large model files
+hf_cache/
+*.zip
+*.safetensors
+*.bin
+*.lock
+
+# Docker volumes & data
+pgdata/
+ollama_data/
+.env.prod
+data.json
+
+# Node.js
+node_modules/
+*.tsbuildinfo
+
+# OS/IDE
+*.swp
+*.swo
+*~
