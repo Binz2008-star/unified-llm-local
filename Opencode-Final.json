@@ -1,0 +1,108 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "X:/",
+        "C:/Users/loyal",
+        "C:/projects",
+        "C:/",
+        "/tmp"
+      ],
+      "description": "Access ANY file - your 3 repos + any new project"
+    },
+    "git": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-git"
+      ],
+      "description": "Git ops on any repo"
+    },
+    "github": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-github"
+      ],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
+      },
+      "description": "Create repos, PRs, push - for new projects"
+    },
+    "brave-search": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-brave-search"
+      ],
+      "env": {
+        "BRAVE_API_KEY": "${BRAVE_API_KEY}"
+      },
+      "description": "Search docs, StackOverflow, real solutions"
+    },
+    "fetch": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-fetch"
+      ],
+      "description": "Fetch any URL - docs, templates"
+    },
+    "postgres": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-postgres",
+        "${NEON_DSN}"
+      ],
+      "description": "Query your second-brain Neon DB directly"
+    },
+    "puppeteer": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-puppeteer"
+      ],
+      "description": "Browser test - test your new projects"
+    },
+    "memory": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-memory"
+      ],
+      "description": "Long-term memory across sessions"
+    },
+    "sequential-thinking": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-sequential-thinking"
+      ],
+      "description": "Better planning for complex builds"
+    },
+    "time": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-time"
+      ],
+      "description": "Time tools"
+    },
+    "universal-second-brain": {
+      "command": "python",
+      "args": [
+        "X:/second-brain-kb/Mcp-Universal.py"
+      ],
+      "env": {
+        "NEON_DSN": "${NEON_DSN}",
+        "OLLAMA_EMBED_URL": "http://127.0.0.1:11434/api/embed",
+        "EMBED_MODEL": "nomic-embed-text"
+      },
+      "description": "YOUR CUSTOM - search brain + create ANY project + file ops + shell"
+    }
+  }
+}
