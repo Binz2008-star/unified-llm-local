@@ -49,6 +49,12 @@ jobs:
       - name: Run Tests
         run: python -m pytest tests/ -v
 
+      - name: Run Benchmark Gates
+        run: |
+          echo "Running performance benchmarks..."
+          timeout 60 python -m pytest tests/test_benchmarks.py -v --tb=short
+          echo "Benchmarks passed within time budget."
+
   node-verify:
     runs-on: ubuntu-latest
     timeout-minutes: 10
