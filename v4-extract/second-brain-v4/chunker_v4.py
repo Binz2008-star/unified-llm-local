@@ -1,63 +1,68 @@
-import re
 import ast
-from pathlib import Path
-from typing import List, Tuple, Optional
+import re
 from dataclasses import dataclass
+from pathlib import Path
+from typing import List, Optional, Tuple
 
 try:
     from tree_sitter import Language, Parser
+
     TREE_SITTER_AVAILABLE = True
 except ImportError:
     TREE_SITTER_AVAILABLE = False
+
 
 @dataclass
 class CodeChunk:
     content: str
     type: str  # 'function', 'class', 'import', 'doc', 'generic'
-    name: Optional[str]
+    name: str | None
     start_line: int
     end_line: int
     language: str
+
 
 class ASTChunker:
     """
     SOTA chunker - understands code structure, not just char count
     Splits by functions, classes, with overlap and context
     """
-    
+
     def __init__(self, max_chars=1500, overlap=200):
         self.max_chars = max_chars
         self.overlap = overlap
-    
-    def chunk_python(self, text: str) -> List[CodeChunk]:
+
+    def chunk_python(self, text: str) -> list[CodeChunk]:
         """AST-aware Python chunking"""
         try:
             tree = ast.parse(text)
         except:
             # Fallback to generic chunker
             return self.chunk_generic(text, "python")
-        
+
         chunks = []
         lines = text.splitlines()
-        
+
         # Extract imports as one chunk
         imports = []
         for node in tree.body:
             if isinstance(node, (ast.Import, ast.ImportFrom)):
                 imports.append(node)
-        
+
         if imports:
             start = imports[0].lineno
-            end = imports[-1].end_lineno if hasattr(imports[-1], 'end_lineno') else imports[-1].lineno
-            content = "\n".join(lines[start-1:end])
+            end = (
+                imports[-1].end_lineno if hasattr(imports[-1], "end_lineno") else imports[-1].lineno
+            )
+            content = "\n".join(lines[start - 1 : end])
             chunks.append(CodeChunk(content, "import", None, start, end, "python"))
-        
+
         # Extract classes and functions with full bodies
         for node in tree.body:
             if isinstance(node, ast.ClassDef):
                 start = node.lineno
-                end = getattr(node, 'end_lineno', start + 20)
-                content = "\n".join(lines[start-1:end])
+                end = getattr(node, "end_lineno", start + 20)
+                content = "\n".join(lines[start - 1 : end])
                 # If class too big, split methods
                 if len(content) > self.max_chars * 1.5:
                     # Keep class header + each method as separate chunk with class context
@@ -65,49 +70,57 @@ class ASTChunker:
                     for item in node.body:
                         if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
                             m_start = item.lineno
-                            m_end = getattr(item, 'end_lineno', m_start + 10)
-                            m_content = header + "\n".join(lines[m_start-1:m_end])
-                            chunks.append(CodeChunk(m_content, "function", f"{node.name}.{item.name}", m_start, m_end, "python"))
+                            m_end = getattr(item, "end_lineno", m_start + 10)
+                            m_content = header + "\n".join(lines[m_start - 1 : m_end])
+                            chunks.append(
+                                CodeChunk(
+                                    m_content,
+                                    "function",
+                                    f"{node.name}.{item.name}",
+                                    m_start,
+                                    m_end,
+                                    "python",
+                                )
+                            )
                 else:
                     chunks.append(CodeChunk(content, "class", node.name, start, end, "python"))
-            
+
             elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 start = node.lineno
-                end = getattr(node, 'end_lineno', start + 20)
-                content = "\n".join(lines[start-1:end])
+                end = getattr(node, "end_lineno", start + 20)
+                content = "\n".join(lines[start - 1 : end])
                 if len(content) > self.max_chars:
                     # Split large function with overlap
                     for sub in self.split_large(content, start, "python", node.name):
                         chunks.append(sub)
                 else:
                     chunks.append(CodeChunk(content, "function", node.name, start, end, "python"))
-        
+
         # If no structured chunks found, fallback
         if len(chunks) <= 1:
             return self.chunk_generic(text, "python")
-        
+
         return chunks
-    
-    def chunk_generic(self, text: str, lang: str) -> List[CodeChunk]:
+
+    def chunk_generic(self, text: str, lang: str) -> list[CodeChunk]:
         """Smart generic chunker - respects boundaries"""
         lines = text.splitlines()
         chunks = []
         current = []
         current_len = 0
         start_line = 1
-        
+
         for i, line in enumerate(lines, 1):
             current.append(line)
             current_len += len(line) + 1
-            
+
             # Natural break points
-            is_break = (
-                current_len >= self.max_chars and
-                (line.strip() == "" or 
-                 line.strip().startswith(("}", ")", "]", "```", "---")) or
-                 i == len(lines))
+            is_break = current_len >= self.max_chars and (
+                line.strip() == ""
+                or line.strip().startswith(("}", ")", "]", "```", "---"))
+                or i == len(lines)
             )
-            
+
             if is_break:
                 content = "\n".join(current)
                 chunks.append(CodeChunk(content, "generic", None, start_line, i, lang))
@@ -116,14 +129,16 @@ class ASTChunker:
                 current = overlap_lines
                 current_len = sum(len(l) for l in current)
                 start_line = i - len(overlap_lines) + 1
-        
+
         if current:
             content = "\n".join(current)
             chunks.append(CodeChunk(content, "generic", None, start_line, len(lines), lang))
-        
+
         return chunks
-    
-    def split_large(self, content: str, start_line: int, lang: str, name: str = None) -> List[CodeChunk]:
+
+    def split_large(
+        self, content: str, start_line: int, lang: str, name: str = None
+    ) -> list[CodeChunk]:
         """Split large function/class into overlapping pieces by CHARS (not lines),
         breaking at line boundaries and preserving accurate line numbers."""
         chunks = []
@@ -156,186 +171,200 @@ class ASTChunker:
             piece = "".join(cur)
             chunks.append(CodeChunk(piece, "function", name, s_line, s_line + len(cur) - 1, lang))
         return chunks
-    
-    def chunk_javascript(self, text: str) -> List[CodeChunk]:
+
+    def chunk_javascript(self, text: str) -> list[CodeChunk]:
         """AST-aware JavaScript chunking using tree-sitter"""
         if not TREE_SITTER_AVAILABLE:
             return self.chunk_generic(text, "javascript")
-        
+
         try:
             import tree_sitter_javascript as tsjs
-            
+
             JS_LANGUAGE = Language(tsjs.language())
-            
+
             parser = Parser()
             parser.language = JS_LANGUAGE
-            
-            tree = parser.parse(text.encode('utf-8'))
+
+            tree = parser.parse(text.encode("utf-8"))
         except Exception:
             return self.chunk_generic(text, "javascript")
-        
+
         chunks = []
         lines = text.splitlines()
-        
+
         def get_node_text(node):
-            return text[node.start_byte:node.end_byte]
-        
+            return text[node.start_byte : node.end_byte]
+
         def extract_imports(node):
             imports = []
             for child in node.children:
-                if child.type in ('import_statement', 'import_declaration'):
+                if child.type in ("import_statement", "import_declaration"):
                     imports.append(child)
             return imports
-        
+
         def extract_functions_classes(node, parent_class=None):
             results = []
             for child in node.children:
-                if child.type in ('function_declaration', 'function_expression', 'arrow_function', 'method_definition'):
-                    name_node = child.child_by_field_name('name')
+                if child.type in (
+                    "function_declaration",
+                    "function_expression",
+                    "arrow_function",
+                    "method_definition",
+                ):
+                    name_node = child.child_by_field_name("name")
                     name = get_node_text(name_node) if name_node else None
                     # For arrow functions assigned to variables, try to get name from parent
-                    if name is None and child.type == 'arrow_function':
+                    if name is None and child.type == "arrow_function":
                         parent = child.parent
-                        if parent and parent.type == 'variable_declarator':
-                            name_node = parent.child_by_field_name('name')
+                        if parent and parent.type == "variable_declarator":
+                            name_node = parent.child_by_field_name("name")
                             name = get_node_text(name_node) if name_node else None
-                        elif parent and parent.type == 'lexical_declaration':
+                        elif parent and parent.type == "lexical_declaration":
                             # const/let arrow function
                             for decl in parent.children:
-                                if decl.type == 'variable_declarator':
-                                    name_node = decl.child_by_field_name('name')
+                                if decl.type == "variable_declarator":
+                                    name_node = decl.child_by_field_name("name")
                                     name = get_node_text(name_node) if name_node else None
                                     break
                     if parent_class and name:
                         name = f"{parent_class}.{name}"
-                    results.append(('function', child, name))
-                elif child.type in ('class_declaration', 'class_expression'):
-                    name_node = child.child_by_field_name('name')
+                    results.append(("function", child, name))
+                elif child.type in ("class_declaration", "class_expression"):
+                    name_node = child.child_by_field_name("name")
                     name = get_node_text(name_node) if name_node else None
-                    results.append(('class', child, name))
+                    results.append(("class", child, name))
                     # Recurse into class body for methods
-                    body = child.child_by_field_name('body')
+                    body = child.child_by_field_name("body")
                     if body:
                         results.extend(extract_functions_classes(body, name))
                 else:
                     results.extend(extract_functions_classes(child, parent_class))
             return results
-        
+
         # Extract imports
         imports = extract_imports(tree.root_node)
         if imports:
             start = imports[0].start_point[0] + 1
             end = imports[-1].end_point[0] + 1
-            content = "\n".join(lines[start-1:end])
+            content = "\n".join(lines[start - 1 : end])
             chunks.append(CodeChunk(content, "import", None, start, end, "javascript"))
-        
+
         # Extract functions and classes
         for kind, node, name in extract_functions_classes(tree.root_node):
             start = node.start_point[0] + 1
             end = node.end_point[0] + 1
-            content = "\n".join(lines[start-1:end])
-            
+            content = "\n".join(lines[start - 1 : end])
+
             if len(content) > self.max_chars * 1.5:
                 for sub in self.split_large(content, start, "javascript", name):
                     chunks.append(sub)
             else:
                 chunks.append(CodeChunk(content, kind, name, start, end, "javascript"))
-        
+
         if len(chunks) <= 1:
             return self.chunk_generic(text, "javascript")
-        
+
         return chunks
 
-    def chunk_typescript(self, text: str, tsx: bool = False) -> List[CodeChunk]:
+    def chunk_typescript(self, text: str, tsx: bool = False) -> list[CodeChunk]:
         """AST-aware TypeScript chunking using tree-sitter"""
         if not TREE_SITTER_AVAILABLE:
             return self.chunk_generic(text, "typescript")
-        
+
         try:
             import tree_sitter_typescript as tsts
-            
+
             TS_LANGUAGE = Language(tsts.language_typescript())
             TSX_LANGUAGE = Language(tsts.language_tsx())
-            
+
             parser = Parser()
             parser.language = TS_LANGUAGE if not tsx else TSX_LANGUAGE
-            
-            tree = parser.parse(text.encode('utf-8'))
+
+            tree = parser.parse(text.encode("utf-8"))
         except Exception:
             return self.chunk_generic(text, "typescript")
-        
+
         chunks = []
         lines = text.splitlines()
-        
+
         def get_node_text(node):
-            return text[node.start_byte:node.end_byte]
-        
+            return text[node.start_byte : node.end_byte]
+
         def extract_imports(node):
             imports = []
             for child in node.children:
-                if child.type in ('import_statement', 'import_declaration'):
+                if child.type in ("import_statement", "import_declaration"):
                     imports.append(child)
             return imports
-        
+
         def extract_functions_classes(node, parent_class=None):
             results = []
             for child in node.children:
-                if child.type in ('function_declaration', 'function_expression', 'arrow_function', 'method_definition'):
-                    name_node = child.child_by_field_name('name')
+                if child.type in (
+                    "function_declaration",
+                    "function_expression",
+                    "arrow_function",
+                    "method_definition",
+                ):
+                    name_node = child.child_by_field_name("name")
                     name = get_node_text(name_node) if name_node else None
                     # For arrow functions assigned to variables, try to get name from parent
-                    if name is None and child.type == 'arrow_function':
+                    if name is None and child.type == "arrow_function":
                         parent = child.parent
-                        if parent and parent.type == 'variable_declarator':
-                            name_node = parent.child_by_field_name('name')
+                        if parent and parent.type == "variable_declarator":
+                            name_node = parent.child_by_field_name("name")
                             name = get_node_text(name_node) if name_node else None
-                        elif parent and parent.type == 'lexical_declaration':
+                        elif parent and parent.type == "lexical_declaration":
                             # const/let arrow function
                             for decl in parent.children:
-                                if decl.type == 'variable_declarator':
-                                    name_node = decl.child_by_field_name('name')
+                                if decl.type == "variable_declarator":
+                                    name_node = decl.child_by_field_name("name")
                                     name = get_node_text(name_node) if name_node else None
                                     break
                     if parent_class and name:
                         name = f"{parent_class}.{name}"
-                    results.append(('function', child, name))
-                elif child.type in ('class_declaration', 'class_expression', 'interface_declaration'):
-                    name_node = child.child_by_field_name('name')
+                    results.append(("function", child, name))
+                elif child.type in (
+                    "class_declaration",
+                    "class_expression",
+                    "interface_declaration",
+                ):
+                    name_node = child.child_by_field_name("name")
                     name = get_node_text(name_node) if name_node else None
-                    results.append(('class', child, name))
-                    body = child.child_by_field_name('body')
+                    results.append(("class", child, name))
+                    body = child.child_by_field_name("body")
                     if body:
                         results.extend(extract_functions_classes(body, name))
                 else:
                     results.extend(extract_functions_classes(child, parent_class))
             return results
-        
+
         # Extract imports
         imports = extract_imports(tree.root_node)
         if imports:
             start = imports[0].start_point[0] + 1
             end = imports[-1].end_point[0] + 1
-            content = "\n".join(lines[start-1:end])
+            content = "\n".join(lines[start - 1 : end])
             chunks.append(CodeChunk(content, "import", None, start, end, "typescript"))
-        
+
         # Extract functions, classes, interfaces
         for kind, node, name in extract_functions_classes(tree.root_node):
             start = node.start_point[0] + 1
             end = node.end_point[0] + 1
-            content = "\n".join(lines[start-1:end])
-            
+            content = "\n".join(lines[start - 1 : end])
+
             if len(content) > self.max_chars * 1.5:
                 for sub in self.split_large(content, start, "typescript", name):
                     chunks.append(sub)
             else:
                 chunks.append(CodeChunk(content, kind, name, start, end, "typescript"))
-        
+
         if len(chunks) <= 1:
             return self.chunk_generic(text, "typescript")
-        
+
         return chunks
 
-    def chunk(self, text: str, file_path: str) -> List[CodeChunk]:
+    def chunk(self, text: str, file_path: str) -> list[CodeChunk]:
         ext = Path(file_path).suffix.lower()
         if ext == ".py":
             return self.chunk_python(text)
@@ -348,6 +377,7 @@ class ASTChunker:
         else:
             lang = "javascript" if ext in (".js", ".ts", ".tsx") else "text"
             return self.chunk_generic(text, lang)
+
 
 # Enhanced schema for v4 - hybrid search
 V4_SCHEMA_SQL = """

@@ -170,11 +170,15 @@ def _audit(entry: AuditEntry) -> None:
 
 
 # ── Validation ───────────────────────────────────────────────────
-def validate_command(command: str, workspace: Path) -> list[str]:
+def validate_command(command: str, workspace: Path, trusted: bool = False) -> list[str]:
     """
     Validate and parse a command string.
 
     Returns parsed args list if allowed, raises PermissionError otherwise.
+
+    Args:
+        trusted: If True, bypasses argument checks for internal operations
+                 (worktree cleanup, etc.). Never expose to agent/LLM.
     """
     if not command or not command.strip():
         raise PermissionError("Empty command")
@@ -193,26 +197,28 @@ def validate_command(command: str, workspace: Path) -> list[str]:
     if executable not in ALLOWED_EXECUTABLES:
         raise PermissionError(f"Executable not allowed: {executable}")
 
-    # For git, check if the subcommand is safe
-    if executable == "git" and len(parts) > 1:
-        subcmd = parts[1].lower().lstrip("-")
-        if subcmd not in GIT_SAFE_COMMANDS:
-            # Check if it's a blocked argument
-            for arg in parts[1:]:
-                if arg.lower().lstrip("-") in BLOCKED_ARGUMENT_PATTERNS:
-                    raise PermissionError(f"Blocked git argument: {arg}")
+    # For non-trusted commands, check blocked arguments
+    if not trusted:
+        # For git, check if the subcommand is safe
+        if executable == "git" and len(parts) > 1:
+            subcmd = parts[1].lower().lstrip("-")
+            if subcmd not in GIT_SAFE_COMMANDS:
+                # Check if it's a blocked argument
+                for arg in parts[1:]:
+                    if arg.lower().lstrip("-") in BLOCKED_ARGUMENT_PATTERNS:
+                        raise PermissionError(f"Blocked git argument: {arg}")
 
-    # Check blocked argument patterns
-    for arg in parts[1:]:
-        arg_lower = arg.lower().lstrip("-")
-        if arg_lower in BLOCKED_ARGUMENT_PATTERNS:
-            raise PermissionError(f"Blocked argument: {arg}")
+        # Check blocked argument patterns
+        for arg in parts[1:]:
+            arg_lower = arg.lower().lstrip("-")
+            if arg_lower in BLOCKED_ARGUMENT_PATTERNS:
+                raise PermissionError(f"Blocked argument: {arg}")
 
-    # Check for shell metacharacters
-    dangerous_chars = set("|;&$`!{}()[]")
-    for part in parts:
-        if any(c in part for c in dangerous_chars):
-            raise PermissionError(f"Shell metacharacter not allowed in: {part}")
+        # Check for shell metacharacters
+        dangerous_chars = set("|;&$`!{}()[]")
+        for part in parts:
+            if any(c in part for c in dangerous_chars):
+                raise PermissionError(f"Shell metacharacter not allowed in: {part}")
 
     return parts
 
@@ -257,6 +263,7 @@ async def run_command(
     workspace: Path,
     timeout_seconds: int = 120,
     max_output_bytes: int = 200_000,
+    trusted: bool = False,
 ) -> CommandResult:
     """
     Execute a command with full security validation.
@@ -266,11 +273,15 @@ async def run_command(
     - Enforces timeout
     - Limits output size
     - Logs audit entry
+
+    Args:
+        trusted: If True, bypasses argument checks for internal operations
+                 (worktree cleanup, etc.). Never expose to agent/LLM.
     """
     start = time.monotonic()
 
     try:
-        args = validate_command(command, workspace)
+        args = validate_command(command, workspace, trusted=trusted)
     except PermissionError as e:
         entry = AuditEntry(
             timestamp=time.time(),

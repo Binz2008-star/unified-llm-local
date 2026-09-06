@@ -10,15 +10,16 @@ Comprehensive tests for all security controls:
 - Context budget enforcement
 """
 
+import hashlib
 import os
-import sys
-import tempfile
+import re
 import shutil
 import subprocess
-import hashlib
-import re
+import sys
+import tempfile
+from collections.abc import Generator
 from pathlib import Path
-from typing import Generator
+
 import pytest
 
 # Add project root to path
@@ -240,7 +241,7 @@ class TestPathSecurity:
 
     def test_validate_path_function(self, temp_repo: Path):
         """Test the validate_path convenience function."""
-        from path_security import validate_path, PathSecurityError
+        from path_security import PathSecurityError, validate_path
 
         # Valid path
         assert validate_path("src/main.py")
@@ -282,7 +283,7 @@ class TestGitSecurity:
 
     def test_non_repo_rejected(self):
         """Test that non-repository paths are rejected."""
-        from git_security import SecureGit, GitError
+        from git_security import GitError, SecureGit
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with pytest.raises(GitError, match="Not a Git repository"):
@@ -290,7 +291,7 @@ class TestGitSecurity:
 
     def test_dangerous_option_rejected(self, temp_repo: Path):
         """Test that dangerous Git options are rejected."""
-        from git_security import SecureGit, GitSecurityError
+        from git_security import GitSecurityError, SecureGit
 
         git = SecureGit(temp_repo)
 
@@ -304,7 +305,7 @@ class TestGitSecurity:
 
     def test_malicious_ref_rejected(self, temp_repo: Path):
         """Test that malicious ref names are rejected."""
-        from git_security import SecureGit, GitSecurityError
+        from git_security import GitSecurityError, SecureGit
 
         git = SecureGit(temp_repo)
 
@@ -341,8 +342,9 @@ class TestGitSecurity:
 
     def test_no_shell_execution(self, temp_repo: Path):
         """Test that Git commands don't use shell execution."""
-        from git_security import SecureGit
         import unittest.mock as mock
+
+        from git_security import SecureGit
 
         git = SecureGit(temp_repo)
 
@@ -826,8 +828,9 @@ class TestMergeGate:
 
     def test_merge_lock_exclusivity(self, temp_repo: Path):
         """Test that merge lock is exclusive."""
-        from merge_gate import MergeLock
         import threading
+
+        from merge_gate import MergeLock
 
         lock = MergeLock(temp_repo)
 
@@ -854,8 +857,8 @@ class TestMergeGate:
     def test_fast_forward_merge(self, temp_repo: Path):
         """Test that fast-forward merge works."""
         from git_security import SecureGit
-        from worktree import WorktreeManager
         from merge_gate import MergeGate
+        from worktree import WorktreeManager
 
         git = SecureGit(temp_repo)
         baseline_sha = git.get_head_sha()
@@ -893,8 +896,8 @@ class TestMergeGate:
     def test_baseline_mismatch_rejected(self, temp_repo: Path):
         """Test that merge is rejected if baseline moved."""
         from git_security import SecureGit
-        from worktree import WorktreeManager
         from merge_gate import MergeGate, MergeSecurityError
+        from worktree import WorktreeManager
 
         git = SecureGit(temp_repo)
         baseline_sha = git.get_head_sha()
@@ -930,8 +933,8 @@ class TestMergeGate:
     def test_unauthorized_files_rejected(self, temp_repo: Path):
         """Test that unauthorized files are rejected."""
         from git_security import SecureGit
-        from worktree import WorktreeManager
         from merge_gate import MergeGate, MergeSecurityError
+        from worktree import WorktreeManager
 
         git = SecureGit(temp_repo)
         baseline_sha = git.get_head_sha()
@@ -975,8 +978,8 @@ class TestEndToEnd:
     def test_complete_workflow(self, temp_repo: Path):
         """Test complete agent workflow: worktree -> changes -> test -> commit -> merge."""
         from git_security import SecureGit
-        from worktree import WorktreeManager
         from merge_gate import MergeGate
+        from worktree import WorktreeManager
 
         git = SecureGit(temp_repo)
         baseline_sha = git.get_head_sha()
@@ -1023,8 +1026,8 @@ if __name__ == "__main__":
     def test_malicious_changes_rejected(self, temp_repo: Path):
         """Test that malicious changes are rejected."""
         from git_security import SecureGit
-        from worktree import WorktreeManager
         from merge_gate import MergeGate, MergeSecurityError
+        from worktree import WorktreeManager
 
         git = SecureGit(temp_repo)
         baseline_sha = git.get_head_sha()

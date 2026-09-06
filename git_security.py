@@ -15,11 +15,10 @@ Security requirements:
 - User-controlled values validated
 """
 
-import subprocess
-import re
-from pathlib import Path
-from typing import Optional, Tuple, List
 import logging
+import re
+import subprocess
+from pathlib import Path
 
 logger = logging.getLogger("SecondBrain.GitSecurity")
 
@@ -73,7 +72,7 @@ class SecureGit:
         if not (self.repo_path / ".git").exists():
             raise GitError(f"Not a Git repository: {self.repo_path}")
 
-    def _run(self, args: List[str], check: bool = True) -> Tuple[int, str, str]:
+    def _run(self, args: list[str], check: bool = True) -> tuple[int, str, str]:
         """
         Run a Git command securely.
 
@@ -124,7 +123,7 @@ class SecureGit:
         except FileNotFoundError:
             raise GitError("Git executable not found")
 
-    def _validate_args(self, args: List[str]):
+    def _validate_args(self, args: list[str]):
         """Validate Git command arguments for security."""
         for arg in args:
             # Check for dangerous options
@@ -216,7 +215,7 @@ class SecureGit:
         _, stdout, _ = self._run(args)
         return stdout
 
-    def get_diff_files(self, base: str, target: str = None) -> List[str]:
+    def get_diff_files(self, base: str, target: str = None) -> list[str]:
         """Get list of changed files between commits."""
         args = ["diff", "--name-only", base]
         if target:
@@ -300,7 +299,7 @@ class SecureGit:
         except GitError:
             return False
 
-    def worktree_list(self) -> List[str]:
+    def worktree_list(self) -> list[str]:
         """List all worktrees."""
         _, stdout, _ = self._run(["worktree", "list"])
         return [line.split()[0] for line in stdout.strip().split("\n") if line]

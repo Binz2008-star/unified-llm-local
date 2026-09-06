@@ -266,8 +266,10 @@ I'll create the file `tests/test_hello.py` with the following content:
 ```python
 import pytest
 
+
 def hello_world() -> str:
     return "Hello, World!"
+
 
 def test_hello() -> None:
     assert hello_world() == "Hello, World!"
@@ -364,6 +366,7 @@ Plan:
    - Content:
      ```python
      import pytest
+
 
      def test_hello_world():
          result = hello_world()

@@ -11,12 +11,12 @@ Usage:
   sb ui                      # Start web UI + API
 """
 
-import sys
-import os
-from pathlib import Path
-import subprocess
 import argparse
 import asyncio
+import os
+import subprocess
+import sys
+from pathlib import Path
 
 ROOT = Path(__file__).parent
 KB_ROOT = ROOT
@@ -30,16 +30,40 @@ except Exception as e:
     print(f"[dotenv] {e}")
 
 
-def run(cmd, **kwargs):
-    """Run a command safely without shell=True."""
+def run(cmd, *, cwd=None, **kwargs):
+    """Run a command through the security-validated executor."""
+    from tool_security import run_command as _run_command
+
     print(f"$ {cmd}")
+
     import shlex
 
     try:
         args = shlex.split(cmd)
     except ValueError:
         args = cmd.split()
-    return subprocess.run(args, shell=False, **kwargs)
+
+    loop = asyncio.new_event_loop()
+    try:
+        result = loop.run_until_complete(
+            _run_command(
+                cmd,
+                workspace=Path(cwd) if cwd else KB_ROOT,
+                timeout_seconds=kwargs.get("timeout", 120),
+            )
+        )
+    finally:
+        loop.close()
+
+    # Return a compatible object for existing callers
+    class _Result:
+        pass
+
+    r = _Result()
+    r.returncode = result.exit_code
+    r.stdout = result.stdout
+    r.stderr = result.stderr
+    return r
 
 
 def _env_project_path(project_id: str) -> str | None:
@@ -113,7 +137,7 @@ def cmd_status(args):
                     edges = await conn.fetchval("SELECT COUNT(*) FROM code_graph")
                     print(f"  code_graph: {edges}")
                 except Exception:
-                    print(f"  code_graph: n/a")
+                    print("  code_graph: n/a")
             finally:
                 await conn.close()
 

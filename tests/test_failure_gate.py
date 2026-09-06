@@ -1,6 +1,7 @@
 # Gate is in brain_agent_v4.py Agent.chat — unit test the helper _tool_result_failed
 def test_tool_result_failed():
-    import importlib.util, pathlib
+    import importlib.util
+    import pathlib
 
     p = pathlib.Path(__file__).resolve().parent.parent / "brain_agent_v4.py"
     spec = importlib.util.spec_from_file_location("ba", str(p))

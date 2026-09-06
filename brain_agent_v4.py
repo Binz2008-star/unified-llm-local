@@ -593,18 +593,21 @@ def tool_typecheck(typecheck_command: str = None):
 
 
 def _git_run(args: list, cwd: Path = None) -> str:
-    """Run a git command safely with explicit argument array."""
+    """Run a git command safely through the security executor."""
     if cwd is None:
         cwd = Path(PROJECTS[CURRENT_PROJECT])
 
+    cmd = "git " + " ".join(args)
+    import asyncio as _aio
+
+    loop = _aio.new_event_loop()
     try:
-        r = subprocess.run(["git"] + args, cwd=cwd, capture_output=True, text=True, timeout=60)
-        output = r.stdout + r.stderr
-        return f"Exit {r.returncode}:\n{output[-5000:]}"
-    except subprocess.TimeoutExpired:
-        return "Error: git command timed out"
-    except Exception as e:
-        return f"Error: {e}"
+        result = loop.run_until_complete(run_command(cmd, cwd, timeout_seconds=60))
+    finally:
+        loop.close()
+
+    output = result.stdout + result.stderr
+    return f"Exit {result.exit_code}:\n{output[-5000:]}"
 
 
 def tool_git_commit(message: str = None, add_all: bool = True):

@@ -28,6 +28,24 @@ jobs:
       - name: Lint with Ruff
         run: ruff check .
 
+      - name: Reject shell=True in production code
+        run: |
+          echo "Checking for shell=True in production Python files..."
+          ! git grep -n 'shell=True' -- '*.py' ':!tests/**' ':!v4-extract/**'
+          echo "No shell=True found in production code."
+
+      - name: Reject os.system in production code
+        run: |
+          echo "Checking for os.system in production Python files..."
+          ! git grep -n 'os\.system(' -- '*.py' ':!tests/**' ':!v4-extract/**'
+          echo "No os.system found in production code."
+
+      - name: Reject eval/exec in production code
+        run: |
+          echo "Checking for eval/exec in production Python files..."
+          ! git grep -n -E '(^|[^a-zA-Z])(eval|exec)\(' -- '*.py' ':!tests/**' ':!v4-extract/**'
+          echo "No eval/exec found in production code."
+
       - name: Run Tests
         run: python -m pytest tests/ -v
 

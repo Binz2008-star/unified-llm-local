@@ -42,11 +42,17 @@ cd ..\..
 echo Step 4: Checking environment configuration...
 if not exist .env (
     echo WARNING: .env file not found, creating template...
-    echo NEON_DSN=postgresql://neondb_owner:npg_Iwmn6zQlT5Jt@ep-empty-paper-avokj61h-pooler.c-11.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require > .env
-    echo OLLAMA_EMBED_URL=http://127.0.0.1:11434/api/embed >> .env
+    echo OLLAMA_EMBED_URL=http://127.0.0.1:11434/api/embed > .env
     echo OLLAMA_CHAT_URL=http://127.0.0.1:11434/api/chat >> .env
     echo EMBED_MODEL=nomic-embed-text >> .env
     echo CHAT_MODEL=deepseek-r1:14b >> .env
+    echo. >> .env
+    echo # Set NEON_DSN in your system environment or in .env locally >> .env
+    echo # NEON_DSN=postgresql://user:password@host/db?sslmode=require >> .env
+)
+if not defined NEON_DSN (
+    echo WARNING: NEON_DSN environment variable is not set.
+    echo Set it in your system environment or in the .env file.
 )
 echo Environment configured.
 

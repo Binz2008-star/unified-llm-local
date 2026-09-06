@@ -69,30 +69,31 @@ The existing Second Brain v4 architecture has critical security and reliability 
 from pathlib import Path
 import os
 
+
 class PathResolver:
     def __init__(self, root: Path):
         self.root = root.resolve()
-    
+
     def resolve(self, path_str: str) -> Path:
         """Validate and resolve path against root"""
         if os.path.isabs(path_str):
             raise ValueError(f"Absolute path not allowed: {path_str}")
-        
+
         if ".." in path_str:
             raise ValueError(f"Path traversal not allowed: {path_str}")
-        
+
         resolved = (self.root / path_str).resolve()
-        
+
         if not str(resolved).startswith(str(self.root)):
             raise ValueError(f"Path escapes root: {path_str}")
-        
+
         # Check for symlink escapes
         try:
             if resolved.exists() and resolved.resolve() != resolved:
                 raise ValueError(f"Symlink escape not allowed: {path_str}")
         except OSError:
             pass
-        
+
         return resolved
 ```
 
@@ -109,16 +110,17 @@ ALLOWED_SHELL_OPS = {
     "git": ["git status", "git diff", "git log", "git commit"],
 }
 
+
 def tool_shell_typed(operation: str, args: list, cwd: Path):
     """Execute typed, allowlisted operation"""
     if operation not in ALLOWED_SHELL_OPS:
         raise ValueError(f"Operation not allowed: {operation}")
-    
+
     # Validate command doesn't contain shell metacharacters
     for arg in args:
         if any(c in arg for c in "|;&$`"):
             raise ValueError(f"Shell metacharacters not allowed: {arg}")
-    
+
     cmd = [ALLOWED_SHELL_OPS[operation][0]] + args
     return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=120)
 ```
@@ -132,43 +134,35 @@ import uuid
 from pathlib import Path
 import subprocess
 
+
 class WorktreeManager:
     def __init__(self, repo_root: Path):
         self.repo_root = repo_root
-    
+
     def create_worktree(self, task_id: str) -> Path:
         """Create isolated worktree outside repository"""
         wt_id = f".wt-{task_id[:8]}-{uuid.uuid4().hex[:8]}"
         worktree_path = self.repo_root.parent / wt_id
-        
+
         # Get baseline SHA
         baseline_sha = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=self.repo_root,
-            capture_output=True,
-            text=True
+            ["git", "rev-parse", "HEAD"], cwd=self.repo_root, capture_output=True, text=True
         ).stdout.strip()
-        
+
         # Create worktree
         branch = f"agent/{task_id[:32]}"
         subprocess.run(
             ["git", "worktree", "add", "-b", branch, str(worktree_path), baseline_sha],
             cwd=self.repo_root,
-            check=True
+            check=True,
         )
-        
+
         return worktree_path, baseline_sha, branch
-    
+
     def cleanup_worktree(self, worktree_path: Path, branch: str):
         """Remove worktree and branch"""
-        subprocess.run(
-            ["git", "worktree", "remove", str(worktree_path)],
-            cwd=self.repo_root
-        )
-        subprocess.run(
-            ["git", "branch", "-D", branch],
-            cwd=self.repo_root
-        )
+        subprocess.run(["git", "worktree", "remove", str(worktree_path)], cwd=self.repo_root)
+        subprocess.run(["git", "branch", "-D", branch], cwd=self.repo_root)
 ```
 
 ### Phase 3: Merge Governance
@@ -179,83 +173,74 @@ class WorktreeManager:
 import fcntl
 from pathlib import Path
 
+
 class MergeLockManager:
     def __init__(self, repo_root: Path):
         self.repo_root = repo_root
         self.lock_file = repo_root / ".merge_lock"
-    
+
     def acquire_lock(self):
         """Acquire exclusive merge lock"""
         self.lock_file.touch()
-        self.lock_fd = open(self.lock_file, 'r')
+        self.lock_fd = open(self.lock_file, "r")
         fcntl.flock(self.lock_fd, fcntl.LOCK_EX)
-    
+
     def release_lock(self):
         """Release merge lock"""
         fcntl.flock(self.lock_fd, fcntl.LOCK_UN)
         self.lock_fd.close()
-    
+
     def verify_and_merge(self, baseline_sha: str, commit_sha: str, branch: str):
         """Verify baseline hasn't moved, then merge"""
         current_sha = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=self.repo_root,
-            capture_output=True,
-            text=True
+            ["git", "rev-parse", "HEAD"], cwd=self.repo_root, capture_output=True, text=True
         ).stdout.strip()
-        
+
         if current_sha != baseline_sha:
             raise RuntimeError(f"Baseline moved: {baseline_sha} -> {current_sha}")
-        
+
         # Fast-forward merge
-        subprocess.run(
-            ["git", "merge", "--ff-only", branch],
-            cwd=self.repo_root,
-            check=True
-        )
-        
+        subprocess.run(["git", "merge", "--ff-only", branch], cwd=self.repo_root, check=True)
+
         # Verify merge result
         merged_sha = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=self.repo_root,
-            capture_output=True,
-            text=True
+            ["git", "rev-parse", "HEAD"], cwd=self.repo_root, capture_output=True, text=True
         ).stdout.strip()
-        
+
         if merged_sha != commit_sha:
-            raise RuntimeError(f"Merge verification failed: expected {commit_sha}, got {merged_sha}")
+            raise RuntimeError(
+                f"Merge verification failed: expected {commit_sha}, got {merged_sha}"
+            )
 ```
 
 ### Phase 4: Search & Context
 
 #### 4.1 Wire Hybrid Search
 ```python
-async def search_brain_hybrid(query: str, top_k: int = 8, 
-                              project_id: str = None,
-                              language: str = None,
-                              chunk_type: str = None) -> List[Dict]:
+async def search_brain_hybrid(
+    query: str, top_k: int = 8, project_id: str = None, language: str = None, chunk_type: str = None
+) -> List[Dict]:
     """Hybrid search with RRF and SQL-side filters"""
     query_embedding = await embed(query)
     emb_str = "[" + ",".join(f"{x:.6f}" for x in query_embedding) + "]"
-    
+
     pool = await _get_pool()
     async with pool.acquire() as conn:
         # Call hybrid_search with filters
         rows = await conn.fetch(
-            """SELECT * FROM hybrid_search($1, $2::vector, $3)""",
-            query, emb_str, top_k
+            """SELECT * FROM hybrid_search($1, $2::vector, $3)""", query, emb_str, top_k
         )
-        
+
         results = [dict(r) for r in rows]
-        
+
         # Apply SQL-side filters
         if project_id:
-            results = [r for r in results if r['project_id'] == project_id]
+            results = [r for r in results if r["project_id"] == project_id]
         if language:
-            results = [r for r in results if r.get('language') == language]
+            results = [r for r in results if r.get("language") == language]
         if chunk_type:
-            results = [r for r in results if r.get('chunk_type') == chunk_type]
-        
+            results = [r for r in results if r.get("chunk_type") == chunk_type]
+
         return results
 ```
 
@@ -265,36 +250,35 @@ class ContextBuilder:
     def __init__(self, token_budget: int = 32000):
         self.token_budget = token_budget
         self.seen_hashes = set()
-    
-    def build_context(self, search_results: List[Dict], 
-                     source_attribution: bool = True) -> str:
+
+    def build_context(self, search_results: List[Dict], source_attribution: bool = True) -> str:
         """Build context with dedup and token budget"""
         context_parts = []
         current_tokens = 0
-        
+
         for result in search_results:
-            content = result['content']
+            content = result["content"]
             content_hash = hashlib.sha256(content.encode()).hexdigest()
-            
+
             # Dedup
             if content_hash in self.seen_hashes:
                 continue
             self.seen_hashes.add(content_hash)
-            
+
             # Estimate tokens (rough: 1 token ≈ 4 chars)
             estimated_tokens = len(content) // 4
             if current_tokens + estimated_tokens > self.token_budget:
                 break
-            
+
             # Add with source attribution
             if source_attribution:
                 part = f"[{result['project_id']}/{result['file_path']}] {content}"
             else:
                 part = content
-            
+
             context_parts.append(part)
             current_tokens += estimated_tokens
-        
+
         return "\n\n".join(context_parts)
 ```
 
@@ -308,59 +292,58 @@ class HardenedAgentExecutor:
         self.path_resolver = PathResolver(project_root)
         self.worktree_manager = WorktreeManager(project_root)
         self.merge_lock = MergeLockManager(project_root)
-    
-    async def execute_task(self, task: str, auto_commit: bool = False, 
-                          auto_merge: bool = False) -> Dict:
+
+    async def execute_task(
+        self, task: str, auto_commit: bool = False, auto_merge: bool = False
+    ) -> Dict:
         """Execute task with full isolation and governance"""
         task_id = uuid.uuid4().hex
-        
+
         # Create isolated worktree
         worktree_path, baseline_sha, branch = self.worktree_manager.create_worktree(task_id)
-        
+
         try:
             # Run agent pipeline in worktree
             result = await self._run_agent_pipeline(task, worktree_path)
-            
+
             # Run deterministic tests
             test_result = await self._run_tests(worktree_path)
-            
-            if test_result['success']:
+
+            if test_result["success"]:
                 # Commit changes
                 commit_sha = await self._commit_changes(worktree_path, task)
-                
+
                 if auto_merge:
                     # Acquire merge lock and merge
                     self.merge_lock.acquire_lock()
                     try:
-                        self.merge_lock.verify_and_merge(
-                            baseline_sha, commit_sha, branch
-                        )
+                        self.merge_lock.verify_and_merge(baseline_sha, commit_sha, branch)
                     finally:
                         self.merge_lock.release_lock()
-                
+
                 return {
-                    'status': 'success',
-                    'baseline_sha': baseline_sha,
-                    'commit_sha': commit_sha,
-                    'worktree': str(worktree_path),
-                    'branch': branch
+                    "status": "success",
+                    "baseline_sha": baseline_sha,
+                    "commit_sha": commit_sha,
+                    "worktree": str(worktree_path),
+                    "branch": branch,
                 }
             else:
                 # Preserve failure evidence
                 return {
-                    'status': 'test_failed',
-                    'test_output': test_result,
-                    'worktree': str(worktree_path),
-                    'branch': branch
+                    "status": "test_failed",
+                    "test_output": test_result,
+                    "worktree": str(worktree_path),
+                    "branch": branch,
                 }
-        
+
         except Exception as e:
             # Never clean up on failure
             return {
-                'status': 'error',
-                'error': str(e),
-                'worktree': str(worktree_path),
-                'branch': branch
+                "status": "error",
+                "error": str(e),
+                "worktree": str(worktree_path),
+                "branch": branch,
             }
 ```
 

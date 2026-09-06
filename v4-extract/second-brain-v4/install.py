@@ -6,8 +6,8 @@ Evolves from v3 to v4 with one command
 
 import os
 import shutil
-from pathlib import Path
 import subprocess
+from pathlib import Path
 
 
 def run(cmd):
@@ -53,9 +53,12 @@ def main():
     import sys
 
     sys.path.insert(0, str(v4_root))
-    from chunker_v4 import V4_SCHEMA_SQL
-    import asyncio, asyncpg
+    import asyncio
+
+    import asyncpg
     from dotenv import load_dotenv
+
+    from chunker_v4 import V4_SCHEMA_SQL
 
     load_dotenv(v4_root / ".env")
 

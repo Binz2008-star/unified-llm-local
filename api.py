@@ -20,28 +20,30 @@ Language & Emotional Intent Router:
   detects Arabic vs English and emotional tone, returns
   {"lang": "ar"|"en", "emotion": str, "raw_text": str}.
 """
-import os
+
 import asyncio
+import hashlib
 import json
+import os
+import re
 import time
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import List, Optional, AsyncGenerator
 
+import aiohttp
+import asyncpg
+import psutil
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Request, APIRouter, Depends
-from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
-import asyncpg
-import aiohttp
-import hashlib
-import re
-import psutil
 
 def _fingerprint(content: str) -> str:
-    return hashlib.sha256(re.sub(r'\s+', ' ', content.strip()).encode('utf-8')).hexdigest()
+    return hashlib.sha256(re.sub(r"\s+", " ", content.strip()).encode("utf-8")).hexdigest()
+
 
 ROOT = Path(__file__).parent
 load_dotenv(ROOT / ".env")
@@ -55,12 +57,12 @@ except Exception:
     pass
 
 from brain_agent_v4 import (
-    search_brain,
-    PROJECTS,
     CURRENT_PROJECT,
+    PROJECTS,
+    close_pool,
     embed,
     run_multi_agent_stream,
-    close_pool,
+    search_brain,
 )
 
 # Data.json path (from ai-dashboard)
@@ -76,15 +78,13 @@ EMBED_MODEL = os.getenv("EMBED_MODEL", "nomic-embed-text")
 CHAT_MODEL = os.getenv("CHAT_MODEL", "qwen2.5:7b")
 
 ALLOWED_ORIGINS = [
-    o.strip()
-    for o in os.getenv("ALLOWED_ORIGINS", "*").split(",")
-    if o.strip()
+    o.strip() for o in os.getenv("ALLOWED_ORIGINS", "*").split(",") if o.strip()
 ] or ["*"]
 
 # ---------------------------------------------------------------------------
 # Lifespan: shared aiohttp session + DB pool lifecycle
 # ---------------------------------------------------------------------------
-_lifespan_session: Optional[aiohttp.ClientSession] = None
+_lifespan_session: aiohttp.ClientSession | None = None
 _pool = None
 
 
@@ -92,9 +92,7 @@ _pool = None
 async def lifespan(app: FastAPI):
     global _lifespan_session
     # Startup
-    _lifespan_session = aiohttp.ClientSession(
-        timeout=aiohttp.ClientTimeout(total=180, connect=30)
-    )
+    _lifespan_session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=180, connect=30))
     try:
         yield
     finally:
@@ -138,13 +136,13 @@ class ChatRequest(BaseModel):
 
 class AgentRequest(BaseModel):
     task: str
-    project: Optional[str] = None
+    project: str | None = None
 
 
 class MemoryRequest(BaseModel):
     type: str = "fact"
     content: str
-    project_id: Optional[str] = None
+    project_id: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -155,21 +153,58 @@ ARABIC_UNICODE_MAX = 0x06FF
 
 EMOTION_KEYWORDS = {
     "urgency": [
-        "asap", "urgent", "immediately", "hurry", "quick", "now",
-        "عاجل", "فورا", "بسرعة", "ضروري", "مستعجل",
+        "asap",
+        "urgent",
+        "immediately",
+        "hurry",
+        "quick",
+        "now",
+        "عاجل",
+        "فورا",
+        "بسرعة",
+        "ضروري",
+        "مستعجل",
     ],
     "frustration": [
-        "annoying", "frustrated", "frustrating", "stupid", "broken",
-        "not working", "fix this", "worst", "hate",
-        "مزعج", "سيء", "معطل", "خاطئ", "غاضب", "منزعج", "لا يعمل",
+        "annoying",
+        "frustrated",
+        "frustrating",
+        "stupid",
+        "broken",
+        "not working",
+        "fix this",
+        "worst",
+        "hate",
+        "مزعج",
+        "سيء",
+        "معطل",
+        "خاطئ",
+        "غاضب",
+        "منزعج",
+        "لا يعمل",
     ],
     "satisfaction": [
-        "great", "awesome", "excellent", "perfect", "wonderful", "love it",
-        "ممتاز", "رائع", "مثالي", "أحسنت",
+        "great",
+        "awesome",
+        "excellent",
+        "perfect",
+        "wonderful",
+        "love it",
+        "ممتاز",
+        "رائع",
+        "مثالي",
+        "أحسنت",
     ],
     "confusion": [
-        "confused", "unclear", "not sure", "what do you mean", "huh",
-        "مش فاهم", "غير واضح", "لا أفهم", "مش واضح",
+        "confused",
+        "unclear",
+        "not sure",
+        "what do you mean",
+        "huh",
+        "مش فاهم",
+        "غير واضح",
+        "لا أفهم",
+        "مش واضح",
     ],
 }
 
@@ -312,12 +347,14 @@ async def api_search(req: SearchRequest):
 @router.post("/chat")
 async def api_chat(req: ChatRequest, intent: dict = Depends(detect_intent)):
     results = await search_brain(req.query, top_k=min(req.top_k, 4)) if search_brain else []
-    context = "\n\n".join(f"[{r['project_id']}/{r['file_path']}] {r['content'][:800]}" for r in results)
+    context = "\n\n".join(
+        f"[{r['project_id']}/{r['file_path']}] {r['content'][:800]}" for r in results
+    )
 
     lang = intent["lang"]
 
     # Fast mode: if query is short, just return search results
-    if len(req.query.split()) <= 3 and not req.query.endswith('?'):
+    if len(req.query.split()) <= 3 and not req.query.endswith("?"):
         return {
             "query": req.query,
             "answer": l10n(lang, "fast_mode", n=len(results)),
@@ -326,8 +363,13 @@ async def api_chat(req: ChatRequest, intent: dict = Depends(detect_intent)):
             "lang": lang,
             "emotion": intent["emotion"],
             "results": [
-                {"project": r["project_id"], "file": r["file_path"], "chunk": r.get("chunk_name"),
-                 "content": r["content"][:500], "score": float(r.get("similarity", r.get("rank", 0)))}
+                {
+                    "project": r["project_id"],
+                    "file": r["file_path"],
+                    "chunk": r.get("chunk_name"),
+                    "content": r["content"][:500],
+                    "score": float(r.get("similarity", r.get("rank", 0))),
+                }
                 for r in results
             ],
         }
@@ -385,6 +427,7 @@ async def api_agent(req: AgentRequest, intent: dict = Depends(detect_intent)):
 @router.get("/agent/stream")
 async def api_agent_stream(task: str):
     """Stream agent progress via Server-Sent Events"""
+
     async def event_generator() -> AsyncGenerator[str, None]:
         try:
             async for event in run_multi_agent_stream(task):
@@ -410,7 +453,9 @@ async def status():
         pool = await get_pool()
         async with pool.acquire() as conn:
             cnt = await conn.fetchval("SELECT COUNT(*) FROM chunks_v4")
-            projs = await conn.fetch("SELECT project_id, COUNT(*) as c FROM chunks_v4 GROUP BY project_id")
+            projs = await conn.fetch(
+                "SELECT project_id, COUNT(*) as c FROM chunks_v4 GROUP BY project_id"
+            )
             try:
                 mem = await conn.fetchval("SELECT COUNT(*) FROM memory")
             except Exception:
@@ -444,7 +489,8 @@ async def api_memory_list(limit: int = 50):
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            "SELECT id, type, content, project_id, created_at FROM memory ORDER BY id DESC LIMIT $1", limit
+            "SELECT id, type, content, project_id, created_at FROM memory ORDER BY id DESC LIMIT $1",
+            limit,
         )
     return {"memories": [dict(r) for r in rows]}
 
@@ -457,16 +503,32 @@ async def api_memory_add(req: MemoryRequest):
     async with pool.acquire() as conn:
         existing = await conn.fetchval("SELECT id FROM memory WHERE content_hash=$1 LIMIT 1", fp)
         if existing is not None:
-            return {"id": existing, "status": "deduped", "type": req.type, "project_id": proj, "deduplicated": True}
+            return {
+                "id": existing,
+                "status": "deduped",
+                "type": req.type,
+                "project_id": proj,
+                "deduplicated": True,
+            }
         emb = await embed(req.content[:500])
         emb_str = "[" + ",".join(f"{x:.6f}" for x in emb) + "]"
         mid = await conn.fetchval(
             "INSERT INTO memory (type, content, project_id, embedding, content_hash) VALUES ($1,$2,$3,$4::vector,$5) ON CONFLICT (content_hash) DO NOTHING RETURNING id",
-            req.type, req.content, proj, emb_str, fp,
+            req.type,
+            req.content,
+            proj,
+            emb_str,
+            fp,
         )
         if mid is None:
             mid = await conn.fetchval("SELECT id FROM memory WHERE content_hash=$1", fp)
-            return {"id": mid, "status": "deduped", "type": req.type, "project_id": proj, "deduplicated": True}
+            return {
+                "id": mid,
+                "status": "deduped",
+                "type": req.type,
+                "project_id": proj,
+                "deduplicated": True,
+            }
     return {"id": mid, "status": "added", "type": req.type, "project_id": proj}
 
 
@@ -479,7 +541,7 @@ async def api_system():
         # Try reading from data.json first (updated by external collector)
         if DATA_JSON_PATH.exists():
             try:
-                with open(DATA_JSON_PATH, 'r') as f:
+                with open(DATA_JSON_PATH) as f:
                     data = json.load(f)
                 cpu_cores = data.get("cpu_cores", [])
                 cpu_total = data.get("cpu", 0)
@@ -493,7 +555,9 @@ async def api_system():
                     "cpu": {
                         "total_percent": cpu_total,
                         "per_core_percent": cpu_cores,
-                        "core_count": len(cpu_cores) if cpu_cores else psutil.cpu_count(logical=True),
+                        "core_count": len(cpu_cores)
+                        if cpu_cores
+                        else psutil.cpu_count(logical=True),
                         "cpu_freq": data.get("cpu_freq", "3.4 GHz"),
                     },
                     "memory": {
@@ -521,7 +585,7 @@ async def api_system():
         cpu_total = psutil.cpu_percent(interval=None)
 
         memory = psutil.virtual_memory()
-        disk = psutil.disk_usage('/')
+        disk = psutil.disk_usage("/")
 
         result = {
             "cpu": {
@@ -593,7 +657,7 @@ async def get_data_json():
 async def ui():
     html_path = ROOT / "ui" / "index.html"
     if html_path.exists():
-        return html_path.read_text(encoding='utf-8')
+        return html_path.read_text(encoding="utf-8")
     return """
     <html><body style="font-family: monospace; padding: 20px;">
     <h1>🧠 Second Brain v4 API</h1>

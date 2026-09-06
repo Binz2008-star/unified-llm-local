@@ -32,16 +32,16 @@ Verify HEAD
 Release lock
 """
 
-import os
 import json
-import time
 import logging
-from pathlib import Path
-from typing import Optional, List, Dict, Any, Set
-from contextlib import contextmanager
+import os
 import threading
+import time
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any
 
-from git_security import SecureGit, GitError, GitSecurityError
+from git_security import GitError, SecureGit
 from path_security import PathResolver, PathSecurityError
 
 logger = logging.getLogger("SecondBrain.MergeGate")
@@ -118,7 +118,7 @@ class MergeLock:
                     # Windows: use msvcrt.locking
                     try:
                         msvcrt.locking(self.lock_fd.fileno(), msvcrt.LK_NBLCK, 1)
-                    except IOError:
+                    except OSError:
                         if self.lock_fd:
                             self.lock_fd.close()
                             self.lock_fd = None
@@ -143,7 +143,7 @@ class MergeLock:
                 logger.debug("Merge lock acquired by %s", self.owner_id)
                 return True
 
-            except (IOError, OSError):
+            except OSError:
                 # Lock is held by another process
                 if self.lock_fd:
                     self.lock_fd.close()
@@ -278,8 +278,8 @@ class MergeGate:
     def __init__(
         self,
         repo_path: Path,
-        path_resolver: Optional[PathResolver] = None,
-        allowed_files: Optional[Set[str]] = None,
+        path_resolver: PathResolver | None = None,
+        allowed_files: set[str] | None = None,
     ):
         """
         Initialize the merge gate.
@@ -297,7 +297,7 @@ class MergeGate:
 
     def merge_agent_changes(
         self, worktree_path: Path, branch: str, baseline_sha: str, auto_cleanup: bool = True
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Merge agent changes from a worktree into the primary repository.
 
@@ -400,7 +400,7 @@ class MergeGate:
 
         return result
 
-    def _validate_changed_files(self, changed_files: List[str]):
+    def _validate_changed_files(self, changed_files: list[str]):
         """
         Validate that all changed files are allowed.
 
@@ -513,8 +513,8 @@ class MergeGate:
 @contextmanager
 def merge_gate_context(
     repo_path: Path,
-    path_resolver: Optional[PathResolver] = None,
-    allowed_files: Optional[Set[str]] = None,
+    path_resolver: PathResolver | None = None,
+    allowed_files: set[str] | None = None,
 ):
     """
     Context manager for merge gate operations.

@@ -78,7 +78,8 @@ def container_healthy(name: str) -> bool:
     try:
         r = subprocess.run(
             ["docker", "inspect", "--format={{.State.Health.Status}}", name],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         return r.stdout.strip().lower() == "healthy"
     except Exception:
@@ -98,9 +99,10 @@ async def db_checks():
         pool = await asyncpg.create_pool(NEON_DSN, min_size=1, max_size=2, command_timeout=30)
         async with pool.acquire() as conn:
             # pgvector activation
-            pg_ok = await conn.fetchval(
-                "SELECT 1 FROM pg_extension WHERE extname = 'vector'"
-            ) is not None
+            pg_ok = (
+                await conn.fetchval("SELECT 1 FROM pg_extension WHERE extname = 'vector'")
+                is not None
+            )
             results["pgvector"] = check("pgvector activation", bool(pg_ok))
 
             # hybrid_search_rrf execution
@@ -297,9 +299,7 @@ async def ingestion_dry_run_check(session):
             cnt = await conn.fetchval(
                 "SELECT COUNT(*) FROM chunks_v4 WHERE file_path = 'mock://file.py'"
             )
-            await conn.execute(
-                "DELETE FROM chunks_v4 WHERE file_path = 'mock://file.py'"
-            )
+            await conn.execute("DELETE FROM chunks_v4 WHERE file_path = 'mock://file.py'")
 
         return check("Ingestion dry-run", bool(cnt and int(cnt) >= 1))
     except Exception as e:
@@ -331,18 +331,20 @@ async def main():
         ingest_res = await ingestion_dry_run_check(session)
 
     # Collect all results into the flat list
-    results.extend([
-        ("pgvector activation", db_res.get("pgvector", False)),
-        ("hybrid_search_rrf execution", db_res.get("rrf", False)),
-        ("ollama /embed (768-dim)", ollama_res.get("embed", False)),
-        ("ollama /chat payload", ollama_res.get("chat", False)),
-        ("FastAPI /status", fastapi_res.get("status", False)),
-        ("FastAPI /search", fastapi_res.get("search", False)),
-        ("FastAPI /chat", fastapi_res.get("chat", False)),
-        ("Express proxy /health", express_res.get("health", False)),
-        ("Express proxy /search", express_res.get("search", False)),
-        ("Ingestion dry-run", ingest_res),
-    ])
+    results.extend(
+        [
+            ("pgvector activation", db_res.get("pgvector", False)),
+            ("hybrid_search_rrf execution", db_res.get("rrf", False)),
+            ("ollama /embed (768-dim)", ollama_res.get("embed", False)),
+            ("ollama /chat payload", ollama_res.get("chat", False)),
+            ("FastAPI /status", fastapi_res.get("status", False)),
+            ("FastAPI /search", fastapi_res.get("search", False)),
+            ("FastAPI /chat", fastapi_res.get("chat", False)),
+            ("Express proxy /health", express_res.get("health", False)),
+            ("Express proxy /search", express_res.get("search", False)),
+            ("Ingestion dry-run", ingest_res),
+        ]
+    )
 
     # ── 3. Diagnostic Summary Table ─────────────────────────────
     section("E2E DIAGNOSTIC SUMMARY TABLE")

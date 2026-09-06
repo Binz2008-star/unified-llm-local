@@ -12,10 +12,9 @@ Sized for qwen2.5:7b (32K context), not 128K.
 """
 
 import hashlib
-import re
-from typing import List, Dict, Optional, Set
-from dataclasses import dataclass
 import logging
+import re
+from dataclasses import dataclass
 
 logger = logging.getLogger("SecondBrain.ContextBuilder")
 
@@ -27,11 +26,11 @@ class ContextChunk:
     content: str
     project_id: str
     file_path: str
-    chunk_name: Optional[str]
+    chunk_name: str | None
     similarity: float
     rank: float
-    language: Optional[str] = None
-    chunk_type: Optional[str] = None
+    language: str | None = None
+    chunk_type: str | None = None
     token_estimate: int = 0
 
 
@@ -70,7 +69,7 @@ class ContextBuilder:
         self.token_budget = token_budget or self.DEFAULT_TOKEN_BUDGET
         self.source_attribution = source_attribution
         self.deduplicate = deduplicate
-        self._seen_hashes: Set[str] = set()
+        self._seen_hashes: set[str] = set()
 
     def estimate_tokens(self, text: str) -> int:
         """
@@ -90,9 +89,9 @@ class ContextBuilder:
 
     def build_context(
         self,
-        search_results: List[Dict],
+        search_results: list[dict],
         max_chunks: int = 50,
-        project_filter: Optional[str] = None,
+        project_filter: str | None = None,
     ) -> str:
         """
         Build context from search results with token budget enforcement.
@@ -184,7 +183,7 @@ class ContextBuilder:
 
         return "\n\n".join(context_parts)
 
-    def get_statistics(self) -> Dict:
+    def get_statistics(self) -> dict:
         """Get statistics about the last build_context call."""
         return {
             "token_budget": self.token_budget,
@@ -194,10 +193,10 @@ class ContextBuilder:
 
 
 def build_agent_context(
-    search_results: List[Dict],
+    search_results: list[dict],
     token_budget: int = None,
     source_attribution: bool = True,
-    project_filter: Optional[str] = None,
+    project_filter: str | None = None,
 ) -> str:
     """
     Convenience function to build context for agent execution.

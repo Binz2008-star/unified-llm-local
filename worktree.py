@@ -25,14 +25,16 @@ MERGE GATE
 PRIMARY REPOSITORY
 """
 
-import uuid
-import shutil
 import logging
-from pathlib import Path
-from typing import Optional, Tuple, Dict, Any
+import shlex
+import shutil
+import uuid
 from contextlib import contextmanager
+from pathlib import Path
+from typing import Any
 
-from git_security import SecureGit, GitError, GitSecurityError
+from git_security import GitError, SecureGit
+from tool_security import run_command
 
 logger = logging.getLogger("SecondBrain.Worktree")
 
@@ -46,7 +48,7 @@ class WorktreeError(Exception):
 class WorktreeManager:
     """Manages isolated Git worktrees for agent execution."""
 
-    def __init__(self, repo_path: Path, worktree_parent: Optional[Path] = None):
+    def __init__(self, repo_path: Path, worktree_parent: Path | None = None):
         """
         Initialize the worktree manager.
 
@@ -58,7 +60,7 @@ class WorktreeManager:
         self.worktree_parent = worktree_parent or self.repo_path.parent
         self.git = SecureGit(repo_path)
 
-    def create_worktree(self, task_id: str = None) -> Dict[str, Any]:
+    def create_worktree(self, task_id: str = None) -> dict[str, Any]:
         """
         Create an isolated worktree for agent execution.
 
@@ -95,13 +97,16 @@ class WorktreeManager:
         except GitError as e:
             # Cleanup: delete the branch if worktree creation failed
             try:
-                import subprocess
+                import asyncio as _aio
 
-                subprocess.run(
-                    ["git", "-C", str(self.repo_path), "branch", "-D", branch_name],
-                    capture_output=True,
-                    timeout=10,
-                )
+                cmd = f"git -C {shlex.quote(str(self.repo_path))} branch -D {shlex.quote(branch_name)}"
+                loop = _aio.new_event_loop()
+                try:
+                    loop.run_until_complete(
+                        run_command(cmd, self.repo_path, timeout_seconds=10, trusted=True)
+                    )
+                finally:
+                    loop.close()
             except Exception:
                 pass
             raise WorktreeError(f"Failed to create worktree: {e}")
@@ -156,9 +161,7 @@ class WorktreeManager:
         """
         Clean up a worktree and its branch.
 
-        Uses raw subprocess for worktree removal because SecureGit
-        blocks --force globally, and worktree cleanup requires it.
-        The worktree path is validated as a managed worktree before removal.
+        Uses tool_security.run_command for all subprocess calls.
 
         Args:
             worktree_path: Path to the worktree
@@ -167,41 +170,44 @@ class WorktreeManager:
         Returns:
             True if successful
         """
-        import subprocess
+        import asyncio
 
         success = True
 
         # Validate that this is a managed worktree before force-removing
         try:
-            managed = self.is_worktree(worktree_path)
+            self.is_worktree(worktree_path)
         except Exception:
-            managed = False
+            pass
 
-        # Remove the worktree via explicit subprocess (bypasses SecureGit)
+        # Remove the worktree
         try:
-            cmd = [
-                "git",
-                "-C",
-                str(self.repo_path),
-                "worktree",
-                "remove",
-                "--force",
-                str(worktree_path.resolve()),
-            ]
-            subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+            cmd = f"git -C {shlex.quote(str(self.repo_path))} worktree remove --force {shlex.quote(str(worktree_path.resolve()))}"
+            loop = asyncio.new_event_loop()
+            try:
+                result = loop.run_until_complete(
+                    run_command(cmd, self.repo_path, timeout_seconds=15, trusted=True)
+                )
+            finally:
+                loop.close()
+            if result.exit_code != 0:
+                logger.warning("Failed to remove worktree: %s", result.stderr)
+                success = False
         except Exception as e:
             logger.warning("Failed to remove worktree: %s", e)
             success = False
 
         # Delete the branch
         try:
-            result = subprocess.run(
-                ["git", "-C", str(self.repo_path), "branch", "-D", branch],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            if result.returncode != 0:
+            cmd = f"git -C {shlex.quote(str(self.repo_path))} branch -D {shlex.quote(branch)}"
+            loop = asyncio.new_event_loop()
+            try:
+                result = loop.run_until_complete(
+                    run_command(cmd, self.repo_path, timeout_seconds=10, trusted=True)
+                )
+            finally:
+                loop.close()
+            if result.exit_code != 0:
                 logger.warning("Failed to delete branch: %s", result.stderr)
                 success = False
         except Exception as e:
