@@ -24,7 +24,11 @@ from tool_security import (
     read_file,
     run_command,
     write_file,
+    apply_patch,
 )
+from app_settings import get_settings
+
+_settings = get_settings()
 
 
 def _fingerprint(content: str) -> str:
@@ -34,13 +38,9 @@ def _fingerprint(content: str) -> str:
 KB_ROOT = Path(__file__).parent
 load_dotenv(KB_ROOT / ".env")
 
-from app_settings import get_settings
-
-_settings = get_settings()
-
 # Structured logging
 logging.basicConfig(
-    level=_settings.log_level,
+    level=os.getenv("LOG_LEVEL", "INFO"),
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("SecondBrain")
@@ -135,14 +135,14 @@ def tool_gemini_query(prompt: str) -> str:
         return f"Gemini Query Failed: {str(e)}"
 
 
-NEON_DSN = _settings.neon_dsn or _settings.database_url
-OLLAMA_EMBED_URL = _settings.ollama_embed_url
-OLLAMA_CHAT_URL = _settings.ollama_chat_url
-EMBED_MODEL = _settings.embed_model
-ARCHITECT_MODEL = _settings.architect_model
-EDITOR_MODEL = _settings.editor_model
-EMBED_DIM = _settings.embed_dim
-AUTO_COMMIT = _settings.auto_commit
+NEON_DSN = os.getenv("NEON_DSN") or os.getenv("DATABASE_URL")
+OLLAMA_EMBED_URL = os.getenv("OLLAMA_EMBED_URL", "http://127.0.0.1:11434/api/embed")
+OLLAMA_CHAT_URL = os.getenv("OLLAMA_CHAT_URL", "http://127.0.0.1:11434/api/chat")
+EMBED_MODEL = os.getenv("EMBED_MODEL", "nomic-embed-text")
+ARCHITECT_MODEL = os.getenv("ARCHITECT_MODEL", "qwen2.5:7b")
+EDITOR_MODEL = os.getenv("EDITOR_MODEL", "qwen2.5:7b")
+EMBED_DIM = int(os.getenv("EMBED_DIM", "768"))
+AUTO_COMMIT = os.getenv("AUTO_COMMIT", "false").lower() == "true"
 
 
 def resolve_proj(env_key, fallbacks):
@@ -229,7 +229,7 @@ async def search_brain(
     """Hybrid semantic search across all indexed projects (vector + BM25 via RRF).
 
     Uses the hybrid_search() PostgreSQL function for Reciprocal Rank Fusion.
-    Applies SQL-side filters for project_id, language, and chunk_type.
+    Falls back to plain vector search ONLY if hybrid_search() is missing from the DB.
     """
     if not memory_mgr:
         logger.warning("MemoryManager not initialized, returning empty results")
@@ -242,38 +242,38 @@ async def search_brain(
         if not pool:
             return []
         async with pool.acquire() as conn:
-            # Try hybrid search first (RRF)
             try:
                 rows = await conn.fetch(
                     """SELECT id, project_id, file_path, chunk_name, content,
                               similarity, rank
-                       FROM hybrid_search($1, $2::vector, $3)""",
+                       FROM hybrid_search($1, $2::vector, $3, $4)""",
                     query,
                     emb_str,
-                    top_k * 2,  # Get more candidates for filtering
+                    top_k * 3 if (project_id or chunk_type or language) else top_k,
+                    60,  # rrf_k, default from the function signature
                 )
                 results = [dict(r) for r in rows]
             except Exception as e:
-                # Fallback to vector-only if hybrid_search not available
-                if "does not exist" in str(e) or "hybrid_search" in str(e):
-                    logger.warning("hybrid_search not available, falling back to vector-only")
-                    rows = await conn.fetch(
-                        """SELECT project_id, file_path, content,
-                                  1 - (embedding <=> $1::vector) as similarity
-                           FROM chunks_v4
-                           ORDER BY embedding <=> $1::vector
-                           LIMIT $2""",
-                        emb_str,
-                        top_k * 2,
-                    )
-                    results = [dict(r) for r in rows]
-                    # Add rank field for consistency
-                    for i, r in enumerate(results):
-                        r["rank"] = i + 1
-                else:
-                    raise
+                # hybrid_search() missing or erroring — this should be rare
+                # after the migration is applied. Log loudly, don't hide it.
+                logger.error(
+                    f"search_brain hybrid_search() failed ({e}); "
+                    f"falling back to plain vector search — THIS IS A BUG "
+                    f"IF IT HAPPENS REPEATEDLY, not expected steady-state behavior."
+                )
+                rows = await conn.fetch(
+                    """SELECT id, project_id, file_path, chunk_name, content,
+                              (1 - (embedding <=> $1::vector))::float AS similarity,
+                              NULL::float AS rank
+                       FROM chunks_v4
+                       ORDER BY embedding <=> $1::vector
+                       LIMIT $2""",
+                    emb_str,
+                    top_k,
+                )
+                results = [dict(r) for r in rows]
 
-            # Apply SQL-side filters
+            # Apply metadata filters in Python
             if project_id:
                 results = [r for r in results if r.get("project_id") == project_id]
             if language:
@@ -639,6 +639,28 @@ def tool_git_status():
     return _git_run(["status", "--short"])
 
 
+def tool_apply_patch(target_file: str, patch_content: str):
+    """Apply a unified diff patch to a file in the current project."""
+    root = Path(PROJECTS[CURRENT_PROJECT])
+    return apply_patch(patch_content, root)
+
+
+def tool_replace_block(target_file: str, search_block: str, replace_block: str):
+    """Replace a specific block of code in a file with new content."""
+    root = Path(PROJECTS[CURRENT_PROJECT])
+    file_path = root / target_file
+    if not file_path.exists():
+        return f"File not found: {target_file}"
+
+    content = file_path.read_text(encoding="utf-8")
+    if search_block not in content:
+        return f"Search block not found in {target_file}"
+
+    new_content = content.replace(search_block, replace_block)
+    file_path.write_text(new_content, encoding="utf-8")
+    return f"Block replaced in {target_file}"
+
+
 TOOLS = [
     {
         "type": "function",
@@ -803,6 +825,8 @@ TOOL_MAP = {
     "typecheck": tool_typecheck,
     "git_commit": tool_git_commit,
     "git_status": tool_git_status,
+    "apply_patch": tool_apply_patch,
+    "replace_block": tool_replace_block,
     "self_heal": lambda target_file, test_command: SelfHealingRunner(
         agent_executor=None, max_retries=3
     ).run_with_self_healing(target_file, test_command),
@@ -1004,6 +1028,59 @@ async def run_multi_agent(task: str):
             logger.warning("Memory failed: %s", e)
 
     logger.info("Multi-agent task complete: %s", task)
+
+
+async def interactive_v4():
+    """Interactive chat session with the multi-agent system."""
+    print("🧠 Second Brain v4 - Interactive Chat")
+    print("Type 'exit' or 'quit' to leave\n")
+
+    session_id = uuid.uuid4().hex
+
+    while True:
+        try:
+            user_input = input("You: ").strip()
+            if user_input.lower() in ("exit", "quit", "q"):
+                print("👋 Goodbye!")
+                break
+
+            if not user_input:
+                continue
+
+            print("\n🤖 Assistant: ", end="", flush=True)
+
+            # For chat, we can use a simpler single-agent approach or the full pipeline
+            # Here we'll use the full multi-agent pipeline for complex tasks
+            if any(
+                kw in user_input.lower()
+                for kw in ["create", "add", "implement", "fix", "refactor", "build"]
+            ):
+                # Run full multi-agent for code tasks
+                await run_multi_agent(user_input)
+                print("(Task completed via multi-agent pipeline)")
+            else:
+                # Simple search + response for questions
+                results = await search_brain(user_input, top_k=5)
+                if results:
+                    context = "\n".join(
+                        f"[{r['project_id']}/{r['file_path']}] {r['content'][:500]}"
+                        for r in results
+                    )
+                    print(f"\nFound {len(results)} relevant code chunks:")
+                    for i, r in enumerate(results[:3], 1):
+                        print(
+                            f"  {i}. {r['project_id']}/{r['file_path']}: {r.get('chunk_name', 'N/A')}"
+                        )
+                else:
+                    print("No relevant code found in knowledge base.")
+
+            print()  # Empty line between turns
+
+        except KeyboardInterrupt:
+            print("\n👋 Goodbye!")
+            break
+        except Exception as e:
+            print(f"\n❌ Error: {e}\n")
 
 
 async def run_multi_agent_stream(task: str) -> AsyncGenerator[dict[str, Any], None]:

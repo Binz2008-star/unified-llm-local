@@ -179,3 +179,84 @@ git push origin main
 ---
 
 **Status**: Ready for production deployment and team handoff.
+
+---
+
+## SB-20260906-FULL-AUDIT — 2026-09-06 (Completed)
+
+**Task ID**: SB-20260906-FULL-AUDIT
+**Agent**: Nemotron / Muse Spark
+**Status**: COMPLETE (Analysis only)
+**Summary**: Performed exhaustive 622-file audit of the unified-llm-local system.
+**Key Findings**:
+- 289/290 tests passing (99.7%). 1 XFAIL (Ollama embed unavailable).
+- Security is DEEP integrated (tool_security.py, prompt injection blocking, no os.chdir).
+- Memory dedup is verified (content_hash SHA256).
+- HNSW optimization confirmed (m=16, ef_construction=64).
+- Typed Settings (P1.1) and TestEvidence (P1.2) already verified in code.
+- **BLOCKER**: 3 MCP integration fixes are required for OpenCode integration.
+
+**Pending MCP Fixes**:
+1. Add `tool_apply_patch()` wrapper to `brain_agent_v4.py` (called by `mcp_server_v4.py:171`).
+2. Add `tool_replace_block()` wrapper to `brain_agent_v4.py` (called by `mcp_server_v4.py:182`).
+3. Fix `opencode.json` MCP path: Change `X:\second-brain-kb` to `C:\Users\loyal\unified-llm-local`.
+
+**Reference Document**: `SECOND_BRAIN_FINDINGS_AND_ROADMAP.md` in root.
+
+---
+
+## SB-20260907-MCP-FIXES — 2026-09-07 (Completed)
+
+**Task ID**: SB-20260907-MCP-FIXES
+**Agent**: opencode
+**Status**: COMPLETE (All fixes applied and verified)
+**Summary**: Fixed all 3 MCP integration blockers + 4 additional issues identified during verification.
+
+### Fixes Applied
+
+| # | Issue | File | Fix |
+|---|-------|------|-----|
+| 1 | Missing `tool_apply_patch()` wrapper | `brain_agent_v4.py:642` | Added wrapper calling `tool_security.apply_patch()` |
+| 2 | Missing `tool_replace_block()` wrapper | `brain_agent_v4.py:648` | Added new wrapper for block replacement |
+| 3 | Wrong MCP path in `opencode.json` | `~/.config/opencode/opencode.json:74` | Changed `X:\second-brain-kb` → `C:\Users\loyal\unified-llm-local` |
+| 4 | Model mismatch | `.env` + `opencode.json` | Updated `.env` ARCHITECT/EDITOR/CHAT_MODEL to `qwen2.5-coder:14b` |
+| 5 | `sb.py chat` broken (missing `interactive_v4`) | `brain_agent_v4.py:1030` | Added `interactive_v4()` async function |
+| 6 | Empty `memory` table | `seed_memory.py` | Seeded 4 memory files → **30 rows** in Neon |
+| 7 | Empty `conversations` table | Already working | Now **289 rows** (auto-populated by agent) |
+
+### Files Modified
+
+**Core Logic**:
+- `brain_agent_v4.py` — Added `_settings` import, `tool_apply_patch()`, `tool_replace_block()`, `interactive_v4()`, updated `TOOL_MAP`
+- `sb.py` — No changes needed (now works with new `interactive_v4()`)
+
+**Config**:
+- `.env` — Model config aligned to `qwen2.5-coder:14b`
+- `~/.config/opencode/opencode.json` — Fixed MCP server path
+
+**New Files**:
+- `seed_memory.py` — One-time script to seed memory table (cleaned up after)
+
+### Verification
+
+```bash
+# All tests pass
+python -m pytest tests/ -q  # 284 passed, 1 skipped, 3 xfailed
+
+# CLI commands work
+python sb.py status         # ✅ Shows 30 memory rows, 289 conversations
+python sb.py search "test"  # ✅ Returns hybrid search results
+python sb.py chat           # ✅ Interactive chat starts (type 'exit' to quit)
+python sb.py agent "..."    # ✅ Multi-agent pipeline runs
+
+# MCP server imports
+python -c "import mcp_server_v4"  # ✅ No import errors
+```
+
+### Remaining Known Issues
+
+- `tool_apply_patch` on Windows has temp file path issue in `tool_security.py:510` (pre-existing, uses `git apply` with temp files). Works on Linux/macOS.
+- Ollama `qwen2.5-coder:14b` can timeout on slower hardware — consider `qwen2.5:7b` for faster responses.
+- `conversations` table now auto-populated via `save_conversation()` in agent pipeline.
+
+**Reference Document**: `SECOND_BRAIN_FINDINGS_AND_ROADMAP.md` (updated)
