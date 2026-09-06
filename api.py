@@ -337,7 +337,8 @@ async def api_search(req: SearchRequest):
                 "file": r["file_path"],
                 "chunk": r.get("chunk_name"),
                 "content": r["content"][:1000],
-                "score": float(r.get("similarity", r.get("rank", 0))),
+                "similarity": float(r.get("similarity", 0)),
+                "rank": float(r.get("rank", 0)) if r.get("rank") is not None else None,
             }
             for r in results
         ],

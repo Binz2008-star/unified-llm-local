@@ -1,5 +1,6 @@
 # CPU-only, no CUDA bloat - Heimdall style (zero GPU)
 --extra-index-url https://download.pytorch.org/whl/cpu
+pydantic-settings
 asyncpg
 aiohttp
 watchdog
