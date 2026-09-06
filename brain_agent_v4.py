@@ -131,14 +131,18 @@ def tool_gemini_query(prompt: str) -> str:
 KB_ROOT = Path(__file__).parent
 load_dotenv(KB_ROOT / ".env")
 
-NEON_DSN = os.getenv("NEON_DSN") or os.getenv("DATABASE_URL")
-OLLAMA_EMBED_URL = os.getenv("OLLAMA_EMBED_URL", "http://127.0.0.1:11434/api/embed")
-OLLAMA_CHAT_URL = os.getenv("OLLAMA_CHAT_URL", "http://127.0.0.1:11434/api/chat")
-EMBED_MODEL = os.getenv("EMBED_MODEL", "nomic-embed-text")
-ARCHITECT_MODEL = os.getenv("ARCHITECT_MODEL", "qwen2.5:7b")
-EDITOR_MODEL = os.getenv("EDITOR_MODEL", "qwen2.5:7b")
-EMBED_DIM = int(os.getenv("EMBED_DIM", "768"))
-AUTO_COMMIT = os.getenv("AUTO_COMMIT", "false").strip().lower() == "true"
+from app_settings import get_settings
+
+_settings = get_settings()
+
+NEON_DSN = _settings.neon_dsn or os.getenv("DATABASE_URL")
+OLLAMA_EMBED_URL = _settings.ollama_embed_url
+OLLAMA_CHAT_URL = _settings.ollama_chat_url
+EMBED_MODEL = _settings.embed_model
+ARCHITECT_MODEL = _settings.architect_model
+EDITOR_MODEL = _settings.editor_model
+EMBED_DIM = _settings.embed_dim
+AUTO_COMMIT = _settings.auto_commit
 
 
 def resolve_proj(env_key, fallbacks):

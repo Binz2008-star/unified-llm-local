@@ -18,6 +18,17 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from protected_path_policy import (
+    ProtectedPathError,
+    assert_mutation_allowed,
+    contains_secret_content,
+    delete_file as policy_delete_file,
+    is_protected_path,
+    rename_file as policy_rename_file,
+    copy_file as policy_copy_file,
+    validate_file_content,
+)
+
 logger = logging.getLogger(__name__)
 
 # ── Allowlist ────────────────────────────────────────────────────
@@ -413,26 +424,43 @@ def read_file(file_path: str, workspace: Path) -> str:
     return p.read_text(encoding="utf-8", errors="ignore")[:8000]
 
 
+def delete_file(file_path: str, workspace: Path) -> str:
+    """Delete a file within workspace bounds. SEC-05: blocks protected files."""
+    return policy_delete_file(file_path, workspace)
+
+
+def rename_file(source: str, target: str, workspace: Path) -> str:
+    """Rename a file within workspace bounds. SEC-05: checks both paths."""
+    return policy_rename_file(source, target, workspace)
+
+
+def copy_file(source: str, target: str, workspace: Path) -> str:
+    """Copy a file within workspace bounds. SEC-05: checks both paths."""
+    return policy_copy_file(source, target, workspace)
+
+
 def write_file(file_path: str, content: str, workspace: Path) -> str:
-    """Write a file within workspace bounds."""
+    """Write a file within workspace bounds. SEC-05: blocks protected files + secret content."""
     p = validate_path(file_path, workspace)
+    assert_mutation_allowed(p, "write", allow_template_write=True)
+    validate_file_content(p, content)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(content, encoding="utf-8")
     return f"Wrote {len(content)} chars to {p.relative_to(workspace)}"
 
 
 def apply_patch(patch_content: str, workspace: Path) -> str:
-    """Apply a unified diff patch within workspace bounds."""
-    # Validate that patch only touches files inside workspace
+    """Apply a unified diff patch within workspace bounds. SEC-05: blocks protected files."""
     lines = patch_content.split("\n")
     for line in lines:
         if line.startswith("--- a/") or line.startswith("+++ b/"):
             path = line.split("/", 1)[1] if "/" in line else ""
             if path:
                 try:
-                    validate_path(path, workspace)
-                except PermissionError as e:
-                    return f"Security error: patch touches file outside workspace: {e}"
+                    p = validate_path(path, workspace)
+                    assert_mutation_allowed(p, "patch")
+                except (PermissionError, ProtectedPathError) as e:
+                    return f"Security error: patch touches protected or outside file: {e}"
 
     # Write patch to temp file and apply
     import tempfile
