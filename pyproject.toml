@@ -3,7 +3,36 @@ name = "second-brain-kb"
 version = "4.0.0"
 description = "Local-first code knowledge base — dual-pool pgvector + Neon"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "asyncpg",
+    "aiohttp",
+    "watchdog",
+    "tiktoken",
+    "python-dotenv",
+    "rich",
+    "pathspec",
+    "sentence-transformers",
+    "huggingface_hub",
+    "torch",
+    "tree-sitter",
+    "tree-sitter-python",
+    "tree-sitter-javascript",
+    "tree-sitter-typescript",
+    "psutil",
+    "patch-ng",
+]
+
+[project.optional-dependencies]
+api = [
+    "fastapi",
+    "uvicorn",
+    "python-multipart",
+    "jinja2",
+]
+dev = [
+    "ruff",
+    "pytest",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "eval"]
