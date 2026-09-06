@@ -2,6 +2,7 @@
 """
 🧠 SECOND BRAIN v4 - Multi-Agent System with Memory & Self-Evolution
 """
+
 import asyncio
 import os
 import sys
@@ -19,13 +20,16 @@ import aiohttp
 import hashlib
 import re
 
+
 def _fingerprint(content: str) -> str:
-    return hashlib.sha256(re.sub(r'\s+', ' ', content.strip()).encode('utf-8')).hexdigest()
+    return hashlib.sha256(re.sub(r"\s+", " ", content.strip()).encode("utf-8")).hexdigest()
+
 
 # Gemini integration
 try:
     from google import genai
     from google.genai import types
+
     GEMINI_AVAILABLE = True
 except ImportError:
     GEMINI_AVAILABLE = False
@@ -41,8 +45,18 @@ logger = logging.getLogger("SecondBrain")
 # If N calls fail in a row, give up with clear error instead of hanging/looping.
 # Tunable via env: MAX_CONSECUTIVE_TOOL_FAILURES (default 3), OLLAMA_TIMEOUT (default 300s)
 DEFAULT_MAX_CONSECUTIVE_TOOL_FAILURES = 3
-_FAILURE_PREFIXES = ("error:", "blocked:", "not found:", "tool not found",
-                     "failed:", "fatal:", "denied:", "unable to", "traceback")
+_FAILURE_PREFIXES = (
+    "error:",
+    "blocked:",
+    "not found:",
+    "tool not found",
+    "failed:",
+    "fatal:",
+    "denied:",
+    "unable to",
+    "traceback",
+)
+
 
 def _tool_result_failed(result) -> bool:
     """True if a tool result string clearly signals a failure (incl. non-zero exit)."""
@@ -57,12 +71,23 @@ def _tool_result_failed(result) -> bool:
         return True
     return False
 
+
 # Security: Shell command denylist
 SHELL_DENYLIST = (
-    "rm -rf /", "rm -rf ~", "rm -rf .", ":(){:|:&};:",
-    "git push", "git reset --hard", "git clean -fd",
-    "> /dev/sd", "mkfs", "dd if=", "shutdown", "reboot",
+    "rm -rf /",
+    "rm -rf ~",
+    "rm -rf .",
+    ":(){:|:&};:",
+    "git push",
+    "git reset --hard",
+    "git clean -fd",
+    "> /dev/sd",
+    "mkfs",
+    "dd if=",
+    "shutdown",
+    "reboot",
 )
+
 
 class GeminiLLMClient:
     def __init__(self, model_name: str = "gemini-1.5-flash"):
@@ -77,19 +102,19 @@ class GeminiLLMClient:
 
     async def generate_response(self, prompt: str, system_instruction: str = None) -> str:
         try:
-            config = types.GenerateContentConfig(
-                system_instruction=system_instruction
-            ) if system_instruction else None
-
-            chat = self.client.chats.create(
-                model=self.model_name,
-                config=config
+            config = (
+                types.GenerateContentConfig(system_instruction=system_instruction)
+                if system_instruction
+                else None
             )
+
+            chat = self.client.chats.create(model=self.model_name, config=config)
             response = chat.send_message(prompt)
             return response.text
         except Exception as e:
             logger.error(f"Error calling Gemini API: {e}")
             return f"Error executing LLM call: {str(e)}"
+
 
 llm_client = None
 if GEMINI_AVAILABLE:
@@ -97,6 +122,7 @@ if GEMINI_AVAILABLE:
         llm_client = GeminiLLMClient()
     except Exception as e:
         logger.warning(f"Gemini client initialization failed: {e}")
+
 
 def tool_gemini_query(prompt: str) -> str:
     if not llm_client:
@@ -107,6 +133,7 @@ def tool_gemini_query(prompt: str) -> str:
         return res.text
     except Exception as e:
         return f"Gemini Query Failed: {str(e)}"
+
 
 KB_ROOT = Path(__file__).parent
 load_dotenv(KB_ROOT / ".env")
@@ -120,6 +147,7 @@ EDITOR_MODEL = os.getenv("EDITOR_MODEL", "qwen2.5:7b")
 EMBED_DIM = int(os.getenv("EMBED_DIM", "768"))
 AUTO_COMMIT = os.getenv("AUTO_COMMIT", "false").strip().lower() == "true"
 
+
 def resolve_proj(env_key, fallbacks):
     v = os.getenv(env_key)
     if v and Path(v).exists():
@@ -129,19 +157,28 @@ def resolve_proj(env_key, fallbacks):
             return p
     return fallbacks[0] if fallbacks else None
 
+
 PROJECTS = {
-    "content-engine": resolve_proj("PROJECT_CONTENT_ENGINE", [r"X:\content engine\Robin-Content-Engine-v2"]),
+    "content-engine": resolve_proj(
+        "PROJECT_CONTENT_ENGINE", [r"X:\content engine\Robin-Content-Engine-v2"]
+    ),
     "lvyy": resolve_proj("PROJECT_LVYY", [r"C:\Users\loyal\lvyy-ai-sales-agent"]),
-    "rico": resolve_proj("PROJECT_RICO", [r"X:\rico\Rico-Your-AI-intelligent-job-hunt-partner-in-the-UAE"]),
+    "rico": resolve_proj(
+        "PROJECT_RICO", [r"X:\rico\Rico-Your-AI-intelligent-job-hunt-partner-in-the-UAE"]
+    ),
     "second-brain": str(KB_ROOT),
 }
 PROJECTS = {k: v for k, v in PROJECTS.items() if v and Path(v).exists()}
-CURRENT_PROJECT = os.getenv("CURRENT_PROJECT", "lvyy" if "lvyy" in PROJECTS else list(PROJECTS.keys())[0] if PROJECTS else None)
+CURRENT_PROJECT = os.getenv(
+    "CURRENT_PROJECT",
+    "lvyy" if "lvyy" in PROJECTS else list(PROJECTS.keys())[0] if PROJECTS else None,
+)
 
 sys.path.insert(0, str(KB_ROOT / "v4-extract" / "second-brain-v4"))
 sys.path.insert(0, str(KB_ROOT))
 memory_mgr = None
 _pool = None
+
 
 async def _get_pool():
     global _pool, memory_mgr
@@ -151,19 +188,24 @@ async def _get_pool():
             memory_mgr.pool = _pool
     return _pool
 
+
 async def close_pool():
     global _pool
     if _pool is not None:
         await _pool.close()
         _pool = None
 
+
 try:
     from memory import MemoryManager
+
     def _on_memory_reload(name, path):
         print(f"[Memory] Reloaded {name} from {path}")
+
     memory_mgr = MemoryManager(memory_dir=str(KB_ROOT / "memory"), on_reload=_on_memory_reload)
 except Exception as e:
     print(f"[memory] disabled: {e}")
+
 
 async def embed(text: str) -> List[float]:
     if not text or not text.strip():
@@ -171,14 +213,28 @@ async def embed(text: str) -> List[float]:
     async with aiohttp.ClientSession() as session:
         for _ in range(3):
             try:
-                async with session.post(OLLAMA_EMBED_URL, json={"model": EMBED_MODEL, "input": text}) as resp:
+                async with session.post(
+                    OLLAMA_EMBED_URL, json={"model": EMBED_MODEL, "input": text}
+                ) as resp:
                     data = await resp.json()
                     return data["embeddings"][0]
             except Exception:
                 await asyncio.sleep(1)
     raise RuntimeError("embed failed")
 
-async def search_brain(query: str, top_k: int = 4) -> List[Dict]:
+
+async def search_brain(
+    query: str,
+    top_k: int = 8,
+    project_id: Optional[str] = None,
+    language: Optional[str] = None,
+    chunk_type: Optional[str] = None,
+) -> List[Dict]:
+    """Hybrid semantic search across all indexed projects (vector + BM25 via RRF).
+
+    Uses the hybrid_search() PostgreSQL function for Reciprocal Rank Fusion.
+    Applies SQL-side filters for project_id, language, and chunk_type.
+    """
     if not memory_mgr:
         logger.warning("MemoryManager not initialized, returning empty results")
         return []
@@ -190,17 +246,52 @@ async def search_brain(query: str, top_k: int = 4) -> List[Dict]:
         if not pool:
             return []
         async with pool.acquire() as conn:
-            rows = await conn.fetch(
-                """SELECT project_id, file_path, content
-                   FROM chunks_v4
-                   ORDER BY embedding <=> $1::vector
-                   LIMIT $2""",
-                emb_str, top_k
-            )
-            return [dict(r) for r in rows]
+            # Try hybrid search first (RRF)
+            try:
+                rows = await conn.fetch(
+                    """SELECT id, project_id, file_path, chunk_name, content,
+                              similarity, rank
+                       FROM hybrid_search($1, $2::vector, $3)""",
+                    query,
+                    emb_str,
+                    top_k * 2,  # Get more candidates for filtering
+                )
+                results = [dict(r) for r in rows]
+            except Exception as e:
+                # Fallback to vector-only if hybrid_search not available
+                if "does not exist" in str(e) or "hybrid_search" in str(e):
+                    logger.warning("hybrid_search not available, falling back to vector-only")
+                    rows = await conn.fetch(
+                        """SELECT project_id, file_path, content,
+                                  1 - (embedding <=> $1::vector) as similarity
+                           FROM chunks_v4
+                           ORDER BY embedding <=> $1::vector
+                           LIMIT $2""",
+                        emb_str,
+                        top_k * 2,
+                    )
+                    results = [dict(r) for r in rows]
+                    # Add rank field for consistency
+                    for i, r in enumerate(results):
+                        r["rank"] = i + 1
+                else:
+                    raise
+
+            # Apply SQL-side filters
+            if project_id:
+                results = [r for r in results if r.get("project_id") == project_id]
+            if language:
+                results = [r for r in results if r.get("language") == language]
+            if chunk_type:
+                results = [r for r in results if r.get("chunk_type") == chunk_type]
+
+            # Return top_k results
+            return results[:top_k]
+
     except Exception as e:
         logger.error(f"search_brain error: {e}")
         return []
+
 
 def _jsonable(value):
     try:
@@ -209,7 +300,10 @@ def _jsonable(value):
     except TypeError:
         return str(value)
 
-async def save_conversation(session_id: str, role: str, content: str, tool_calls=None, project_id: Optional[str] = None):
+
+async def save_conversation(
+    session_id: str, role: str, content: str, tool_calls=None, project_id: Optional[str] = None
+):
     payload = json.dumps(_jsonable(tool_calls)) if tool_calls else None
     pool = await _get_pool()
     if not pool:
@@ -220,16 +314,24 @@ async def save_conversation(session_id: str, role: str, content: str, tool_calls
                 if payload:
                     await conn.execute(
                         "INSERT INTO conversations (session_id, role, content, tool_calls, project_id) VALUES ($1,$2,$3,$4::jsonb,$5)",
-                        session_id, role, content, payload, project_id,
+                        session_id,
+                        role,
+                        content,
+                        payload,
+                        project_id,
                     )
                 else:
                     await conn.execute(
                         "INSERT INTO conversations (session_id, role, content, project_id) VALUES ($1,$2,$3,$4)",
-                        session_id, role, content, project_id,
+                        session_id,
+                        role,
+                        content,
+                        project_id,
                     )
             return
         except Exception:
             await asyncio.sleep(0.5 * (attempt + 1))
+
 
 async def persist_agent_history(session_id: str, agents: List[Any]) -> int:
     saved = 0
@@ -245,6 +347,7 @@ async def persist_agent_history(session_id: str, agents: List[Any]) -> int:
             saved += 1
     return saved
 
+
 class Agent:
     def __init__(self, name: str, model: str, system_prompt: str):
         self.name = name
@@ -256,8 +359,9 @@ class Agent:
         self.history.append({"role": "user", "content": user_msg})
         messages = [{"role": "system", "content": self.system}] + self.history
 
-        max_failures = int(os.getenv(
-            "MAX_CONSECUTIVE_TOOL_FAILURES", str(DEFAULT_MAX_CONSECUTIVE_TOOL_FAILURES)))
+        max_failures = int(
+            os.getenv("MAX_CONSECUTIVE_TOOL_FAILURES", str(DEFAULT_MAX_CONSECUTIVE_TOOL_FAILURES))
+        )
         consecutive_failures = 0
         last_failure = ""
 
@@ -270,29 +374,55 @@ class Agent:
                 # Ollama timeout tunable via env (was hardcoded 600s for deepseek slow-load; qwen is faster)
                 ollama_timeout = int(os.getenv("OLLAMA_TIMEOUT", "300"))
                 try:
-                    async with session.post(OLLAMA_CHAT_URL, json=payload,
-                                            timeout=aiohttp.ClientTimeout(total=ollama_timeout, connect=60)) as resp:
+                    async with session.post(
+                        OLLAMA_CHAT_URL,
+                        json=payload,
+                        timeout=aiohttp.ClientTimeout(total=ollama_timeout, connect=60),
+                    ) as resp:
                         data = await resp.json()
                 except (asyncio.TimeoutError, aiohttp.ClientError) as e:
                     consecutive_failures += 1
-                    last_failure = f"model {self.model} call failed ({type(e).__name__}: {str(e)[:150]})"
-                    logger.warning("[%s] Model call failed %d/%d (loop %d/8): %s", self.name, consecutive_failures, max_failures, loop_idx+1, last_failure)
+                    last_failure = (
+                        f"model {self.model} call failed ({type(e).__name__}: {str(e)[:150]})"
+                    )
+                    logger.warning(
+                        "[%s] Model call failed %d/%d (loop %d/8): %s",
+                        self.name,
+                        consecutive_failures,
+                        max_failures,
+                        loop_idx + 1,
+                        last_failure,
+                    )
                     if consecutive_failures >= max_failures:
-                        return (f"[AGENT GAVE UP] {consecutive_failures} consecutive model failures "
-                                f"(cap {max_failures}); last: {last_failure}. "
-                                f"Ollama {self.model} appears unavailable/hung (deepseek→qwen hang guard). "
-                                "Check `ollama ps` and `ollama list`, ensure qwen2.5:7b is pulled and VRAM free.")
+                        return (
+                            f"[AGENT GAVE UP] {consecutive_failures} consecutive model failures "
+                            f"(cap {max_failures}); last: {last_failure}. "
+                            f"Ollama {self.model} appears unavailable/hung (deepseek→qwen hang guard). "
+                            "Check `ollama ps` and `ollama list`, ensure qwen2.5:7b is pulled and VRAM free."
+                        )
                     await asyncio.sleep(2 * consecutive_failures)
                     continue
                 if "error" in data:
                     err = str(data["error"])
                     consecutive_failures += 1
                     last_failure = f"model {self.model} error: {err[:200]}"
-                    logger.warning("[%s] Model returned error %d/%d: %s", self.name, consecutive_failures, max_failures, last_failure)
+                    logger.warning(
+                        "[%s] Model returned error %d/%d: %s",
+                        self.name,
+                        consecutive_failures,
+                        max_failures,
+                        last_failure,
+                    )
                     # For 'model not found' or after cap, give up immediately with clear message
-                    if consecutive_failures >= max_failures or "not found" in err.lower() or "connection" in err.lower():
-                        return (f"[AGENT GAVE UP] Ollama error after {consecutive_failures} consecutive failures "
-                                f"(cap {max_failures}): {err}. Check Ollama and model {self.model}.")
+                    if (
+                        consecutive_failures >= max_failures
+                        or "not found" in err.lower()
+                        or "connection" in err.lower()
+                    ):
+                        return (
+                            f"[AGENT GAVE UP] Ollama error after {consecutive_failures} consecutive failures "
+                            f"(cap {max_failures}): {err}. Check Ollama and model {self.model}."
+                        )
                     await asyncio.sleep(2)
                     continue
                 # model succeeded — don't reset yet; let tool result decide (unless no tools)
@@ -314,7 +444,11 @@ class Agent:
                     result = "Tool not found"
                     if func:
                         try:
-                            result = await func(**args) if asyncio.iscoroutinefunction(func) else func(**args)
+                            result = (
+                                await func(**args)
+                                if asyncio.iscoroutinefunction(func)
+                                else func(**args)
+                            )
                         except Exception as e:
                             result = f"Error: {e}"
                     if _tool_result_failed(result):
@@ -322,7 +456,12 @@ class Agent:
                         last_failure = f"{fname}: {str(result)[:200]}"
                     else:
                         turn_succeeded = True
-                    tool_msg = {"role": "tool", "name": fname, "args": args, "content": str(result)[:8000]}
+                    tool_msg = {
+                        "role": "tool",
+                        "name": fname,
+                        "args": args,
+                        "content": str(result)[:8000],
+                    }
                     messages.append(tool_msg)
                     self.history.append(tool_msg)
 
@@ -331,43 +470,93 @@ class Agent:
                 elif turn_failed:
                     consecutive_failures += 1
                     if consecutive_failures >= max_failures:
-                        return (f"[AGENT GAVE UP] {consecutive_failures} consecutive tool failures "
-                                f"(cap {max_failures}); the last failure was: {last_failure}. "
-                                "Stopped instead of looping forever.")
+                        return (
+                            f"[AGENT GAVE UP] {consecutive_failures} consecutive tool failures "
+                            f"(cap {max_failures}); the last failure was: {last_failure}. "
+                            "Stopped instead of looping forever."
+                        )
 
         return "Max tool loops reached"
 
+
 def tool_list_projects():
     return json.dumps(PROJECTS, indent=2)
+
 
 def tool_switch_project(project_id: str):
     global CURRENT_PROJECT
     if project_id not in PROJECTS:
         return f"Not found. Available: {list(PROJECTS.keys())}"
     CURRENT_PROJECT = project_id
-    os.chdir(PROJECTS[project_id])
     env_path = KB_ROOT / ".env"
     if env_path.exists():
         content = env_path.read_text()
         import re
+
         if "CURRENT_PROJECT" in content:
-            content = re.sub(r"CURRENT_PROJECT=.*", f"CURRENT_PROJECT={project_id}", content, flags=re.M)
+            content = re.sub(
+                r"CURRENT_PROJECT=.*", f"CURRENT_PROJECT={project_id}", content, flags=re.M
+            )
         else:
             content += f"\nCURRENT_PROJECT={project_id}\n"
         env_path.write_text(content)
     return f"Switched to {project_id}"
 
+
+def _validate_path(file_path: str, root: Path) -> Path:
+    """Validate and resolve a file path against a root directory.
+
+    Security invariants:
+    - Rejects absolute paths
+    - Rejects path traversal (..)
+    - Rejects paths escaping root
+    - Rejects .git traversal
+    - Returns canonical Path inside root
+    """
+    p = Path(file_path)
+
+    if p.is_absolute():
+        raise ValueError(f"Absolute path not allowed: {file_path}")
+
+    parts = p.parts
+    if ".." in parts:
+        raise ValueError(f"Path traversal not allowed: {file_path}")
+
+    if any(part.lower() == ".git" for part in parts):
+        raise ValueError(f".git traversal not allowed: {file_path}")
+
+    resolved = (root / p).resolve()
+    root_resolved = root.resolve()
+
+    try:
+        resolved.relative_to(root_resolved)
+    except ValueError:
+        raise ValueError(f"Path escapes root directory: {file_path}")
+
+    return resolved
+
+
 def tool_read(file_path: str):
-    p = Path(PROJECTS[CURRENT_PROJECT]) / file_path
+    root = Path(PROJECTS[CURRENT_PROJECT])
+    try:
+        p = _validate_path(file_path, root)
+    except ValueError as e:
+        return f"Security error: {e}"
     if not p.exists():
         return f"Not found: {p}"
-    return p.read_text(encoding='utf-8', errors='ignore')[:8000]
+    return p.read_text(encoding="utf-8", errors="ignore")[:8000]
+
 
 def tool_write(file_path: str, content: str):
-    p = Path(PROJECTS[CURRENT_PROJECT]) / file_path
+    root = Path(PROJECTS[CURRENT_PROJECT])
+    try:
+        p = _validate_path(file_path, root)
+    except ValueError as e:
+        return f"Security error: {e}"
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(content, encoding='utf-8')
+    p.write_text(content, encoding="utf-8")
     return f"Wrote {len(content)} chars to {p}"
+
 
 def tool_shell(command: str):
     lowered = command.lower()
@@ -375,13 +564,36 @@ def tool_shell(command: str):
         if bad in lowered:
             logger.warning("Blocked denylisted command: %s", bad)
             return f"Blocked: command matches denylisted pattern {bad!r}"
+
+    # Parse command into argument list - never use shell=True
+    try:
+        args = shlex.split(command)
+    except ValueError as e:
+        return f"Error: invalid command syntax: {e}"
+
+    if not args:
+        return "Error: empty command"
+
+    # Block dangerous commands
+    dangerous_commands = {
+        "rm",
+        "rmdir",
+        "del",
+        "format",
+        "mkfs",
+        "dd",
+        "shutdown",
+        "reboot",
+        "halt",
+        "poweroff",
+        "init",
+    }
+    if args[0].lower() in dangerous_commands:
+        return f"Blocked: command '{args[0]}' is not allowed"
+
     try:
         root = PROJECTS[CURRENT_PROJECT]
-        if sys.platform == "win32":
-            r = subprocess.run(command, shell=True, cwd=root, capture_output=True, text=True, timeout=120)
-        else:
-            args = shlex.split(command)
-            r = subprocess.run(args, shell=False, cwd=root, capture_output=True, text=True, timeout=120)
+        r = subprocess.run(args, shell=False, cwd=root, capture_output=True, text=True, timeout=120)
         return f"Exit {r.returncode}:\n{r.stdout[-5000:]}\n{r.stderr[-2000:]}"
     except subprocess.TimeoutExpired:
         logger.error("Command timed out after 120s: %s", command)
@@ -389,6 +601,7 @@ def tool_shell(command: str):
     except Exception as e:
         logger.exception("Shell command failed: %s", command)
         return f"Error: {e}"
+
 
 def tool_run_tests(test_command: str = None):
     proj_root = Path(PROJECTS[CURRENT_PROJECT])
@@ -403,6 +616,7 @@ def tool_run_tests(test_command: str = None):
             test_command = "python -m pytest"
     return tool_shell(test_command)
 
+
 def tool_lint(lint_command: str = None):
     proj_root = Path(PROJECTS[CURRENT_PROJECT])
     if not lint_command:
@@ -414,6 +628,7 @@ def tool_lint(lint_command: str = None):
             lint_command = "ruff check ."
     return tool_shell(lint_command)
 
+
 def tool_typecheck(typecheck_command: str = None):
     proj_root = Path(PROJECTS[CURRENT_PROJECT])
     if not typecheck_command:
@@ -423,18 +638,34 @@ def tool_typecheck(typecheck_command: str = None):
             typecheck_command = "mypy ."
     return tool_shell(typecheck_command)
 
+
+def _git_run(args: list, cwd: Path = None) -> str:
+    """Run a git command safely with explicit argument array."""
+    if cwd is None:
+        cwd = Path(PROJECTS[CURRENT_PROJECT])
+
+    try:
+        r = subprocess.run(["git"] + args, cwd=cwd, capture_output=True, text=True, timeout=60)
+        output = r.stdout + r.stderr
+        return f"Exit {r.returncode}:\n{output[-5000:]}"
+    except subprocess.TimeoutExpired:
+        return "Error: git command timed out"
+    except Exception as e:
+        return f"Error: {e}"
+
+
 def tool_git_commit(message: str = None, add_all: bool = True):
     if add_all:
-        result = tool_shell("git add -A")
+        result = _git_run(["add", "-A"])
         if "Error" in result or "fatal" in result:
             return f"Git add failed: {result}"
 
     if not message:
-        diff_result = tool_shell("git diff --cached --name-only")
+        diff_result = _git_run(["diff", "--cached", "--name-only"])
         if "Error" in diff_result or not diff_result.strip():
             return "No staged changes to commit"
 
-        files = diff_result.strip().split('\n')
+        files = diff_result.strip().split("\n")
         commit_type = "feat"
         if any(f.startswith("test") or "test" in f for f in files):
             commit_type = "test"
@@ -447,25 +678,165 @@ def tool_git_commit(message: str = None, add_all: bool = True):
 
         message = f"{commit_type}: auto-commit from agent task ({len(files)} files)"
 
-    return tool_shell(f'git commit -m "{shlex.quote(message)}"')
+    return _git_run(["commit", "-m", message])
+
 
 def tool_git_status():
-    return tool_shell("git status --short")
+    return _git_run(["status", "--short"])
+
 
 TOOLS = [
-    {"type": "function", "function": {"name": "search_brain", "description": "Search all repos", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}},
-    {"type": "function", "function": {"name": "read_file", "description": "Read file", "parameters": {"type": "object", "properties": {"file_path": {"type": "string"}}, "required": ["file_path"]}}},
-    {"type": "function", "function": {"name": "write_file", "description": "Write file", "parameters": {"type": "object", "properties": {"file_path": {"type": "string"}, "content": {"type": "string"}}, "required": ["file_path", "content"]}}},
-    {"type": "function", "function": {"name": "run_shell", "description": "Run shell command", "parameters": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}}},
-    {"type": "function", "function": {"name": "run_tests", "description": "Run tests", "parameters": {"type": "object", "properties": {"test_command": {"type": "string"}}, "required": []}}},
-    {"type": "function", "function": {"name": "lint", "description": "Run linter", "parameters": {"type": "object", "properties": {"lint_command": {"type": "string"}}, "required": []}}},
-    {"type": "function", "function": {"name": "typecheck", "description": "Run type checker", "parameters": {"type": "object", "properties": {"typecheck_command": {"type": "string"}}, "required": []}}},
-    {"type": "function", "function": {"name": "git_commit", "description": "Commit changes", "parameters": {"type": "object", "properties": {"message": {"type": "string"}, "add_all": {"type": "boolean"}}, "required": []}}},
-    {"type": "function", "function": {"name": "git_status", "description": "Get git status", "parameters": {"type": "object", "properties": {}}}},
-    {"type": "function", "function": {"name": "self_heal", "description": "Run a test command and auto-fix code", "parameters": {"type": "object", "properties": {"target_file": {"type": "string"}, "test_command": {"type": "string"}}, "required": ["target_file", "test_command"]}}},
-    {"type": "function", "function": {"name": "list_projects", "description": "List projects", "parameters": {"type": "object", "properties": {}}}},
-    {"type": "function", "function": {"name": "switch_project", "description": "Switch project", "parameters": {"type": "object", "properties": {"project_id": {"type": "string"}}, "required": ["project_id"]}}},
-    {"type": "function", "function": {"name": "gemini_query", "description": "Query Gemini", "parameters": {"type": "object", "properties": {"prompt": {"type": "string"}}, "required": ["prompt"]}}},
+    {
+        "type": "function",
+        "function": {
+            "name": "search_brain",
+            "description": "Search all repos",
+            "parameters": {
+                "type": "object",
+                "properties": {"query": {"type": "string"}},
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "Read file",
+            "parameters": {
+                "type": "object",
+                "properties": {"file_path": {"type": "string"}},
+                "required": ["file_path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_file",
+            "description": "Write file",
+            "parameters": {
+                "type": "object",
+                "properties": {"file_path": {"type": "string"}, "content": {"type": "string"}},
+                "required": ["file_path", "content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_shell",
+            "description": "Run shell command",
+            "parameters": {
+                "type": "object",
+                "properties": {"command": {"type": "string"}},
+                "required": ["command"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_tests",
+            "description": "Run tests",
+            "parameters": {
+                "type": "object",
+                "properties": {"test_command": {"type": "string"}},
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "lint",
+            "description": "Run linter",
+            "parameters": {
+                "type": "object",
+                "properties": {"lint_command": {"type": "string"}},
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "typecheck",
+            "description": "Run type checker",
+            "parameters": {
+                "type": "object",
+                "properties": {"typecheck_command": {"type": "string"}},
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "git_commit",
+            "description": "Commit changes",
+            "parameters": {
+                "type": "object",
+                "properties": {"message": {"type": "string"}, "add_all": {"type": "boolean"}},
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "git_status",
+            "description": "Get git status",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "self_heal",
+            "description": "Run a test command and auto-fix code",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target_file": {"type": "string"},
+                    "test_command": {"type": "string"},
+                },
+                "required": ["target_file", "test_command"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_projects",
+            "description": "List projects",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "switch_project",
+            "description": "Switch project",
+            "parameters": {
+                "type": "object",
+                "properties": {"project_id": {"type": "string"}},
+                "required": ["project_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "gemini_query",
+            "description": "Query Gemini",
+            "parameters": {
+                "type": "object",
+                "properties": {"prompt": {"type": "string"}},
+                "required": ["prompt"],
+            },
+        },
+    },
 ]
 
 TOOL_MAP = {
@@ -478,11 +849,14 @@ TOOL_MAP = {
     "typecheck": tool_typecheck,
     "git_commit": tool_git_commit,
     "git_status": tool_git_status,
-    "self_heal": lambda target_file, test_command: SelfHealingRunner(agent_executor=None, max_retries=3).run_with_self_healing(target_file, test_command),
+    "self_heal": lambda target_file, test_command: SelfHealingRunner(
+        agent_executor=None, max_retries=3
+    ).run_with_self_healing(target_file, test_command),
     "list_projects": tool_list_projects,
     "switch_project": tool_switch_project,
     "gemini_query": tool_gemini_query,
 }
+
 
 class SelfHealingRunner:
     def __init__(self, agent_executor, max_retries: int = 3):
@@ -513,28 +887,31 @@ class SelfHealingRunner:
             fixed_code = await self._get_fix_from_llm(reflection_prompt)
             tool_write(target_file, fixed_code)
 
-        return {
-            "status": "failed",
-            "attempts": self.max_retries,
-            "last_output": test_output
-        }
+        return {"status": "failed", "attempts": self.max_retries, "last_output": test_output}
 
     async def _get_fix_from_llm(self, prompt: str) -> str:
         async with aiohttp.ClientSession() as session:
             payload = {
                 "model": EDITOR_MODEL,
                 "messages": [
-                    {"role": "system", "content": "You are an expert code fixer. Return only the corrected file content without any markdown or explanation."},
-                    {"role": "user", "content": prompt}
+                    {
+                        "role": "system",
+                        "content": "You are an expert code fixer. Return only the corrected file content without any markdown or explanation.",
+                    },
+                    {"role": "user", "content": prompt},
                 ],
-                "stream": False
+                "stream": False,
             }
-            async with session.post(OLLAMA_CHAT_URL, json=payload, timeout=aiohttp.ClientTimeout(total=300)) as resp:
+            async with session.post(
+                OLLAMA_CHAT_URL, json=payload, timeout=aiohttp.ClientTimeout(total=300)
+            ) as resp:
                 data = await resp.json()
                 return data["message"]["content"].strip()
 
+
 def _projects_line():
     return f"Projects: {list(PROJECTS.keys())}, Current: {CURRENT_PROJECT} at {PROJECTS.get(CURRENT_PROJECT)}"
+
 
 ARCHITECT_SYSTEM = f"""You are Architect Agent - senior system designer.
 {_projects_line()}
@@ -556,8 +933,20 @@ NEVER fabricate test results - you MUST invoke run_shell to execute real test co
 # Tools whose invocation counts as a real verification step for the auto-commit gate.
 _TEST_TOOLS = {"run_shell", "run_tests", "lint", "typecheck"}
 # Command fragments indicating a test/lint/typecheck/build run (case-insensitive).
-_TEST_CMD_HINTS = (" test", "pytest", " npm test", "npm run lint", "npm run build",
-                   " tsc", "mypy", "ruff", "vitest", "jest", "make test")
+_TEST_CMD_HINTS = (
+    " test",
+    "pytest",
+    " npm test",
+    "npm run lint",
+    "npm run build",
+    " tsc",
+    "mypy",
+    "ruff",
+    "vitest",
+    "jest",
+    "make test",
+)
+
 
 def _tester_ran_pass(tester: Agent) -> bool:
     """True only if the Tester actually invoked a test/lint tool that passed clean.
@@ -575,7 +964,13 @@ def _tester_ran_pass(tester: Agent) -> bool:
         if name not in _TEST_TOOLS:
             continue
         args = m.get("args") or {}
-        cmd = str(args.get("command") or args.get("test_command") or args.get("lint_command") or args.get("typecheck_command") or "")
+        cmd = str(
+            args.get("command")
+            or args.get("test_command")
+            or args.get("lint_command")
+            or args.get("typecheck_command")
+            or ""
+        )
         if name == "run_shell" and not any(h in cmd.lower() for h in _TEST_CMD_HINTS):
             continue
         content = m.get("content") or ""
@@ -583,36 +978,40 @@ def _tester_ran_pass(tester: Agent) -> bool:
             return True
     return False
 
+
 async def run_multi_agent(task: str):
     logger.info("Multi-Agent Task: %s", task)
     session_id = uuid.uuid4().hex
 
     logger.info("[Researcher] Searching brain...")
     brain_results = await search_brain(task, top_k=8)
-    brain_context = "\n".join(f"[{r['project_id']}/{r['file_path']}] {r['content'][:800]}" for r in brain_results)
+    brain_context = "\n".join(
+        f"[{r['project_id']}/{r['file_path']}] {r['content'][:800]}" for r in brain_results
+    )
     try:
-        await save_conversation(session_id, "tool", brain_context[:8000], project_id=CURRENT_PROJECT)
+        await save_conversation(
+            session_id, "tool", brain_context[:8000], project_id=CURRENT_PROJECT
+        )
     except Exception as e:
         logger.warning("Brain context save failed: %s", e)
 
     architect = Agent("Architect", ARCHITECT_MODEL, ARCHITECT_SYSTEM)
     plan = await architect.chat(
         f"Task: {task}\n\nRelevant code from brain:\n{brain_context}\n\nCreate a plan.",
-        tools=TOOLS, tool_map=TOOL_MAP
+        tools=TOOLS,
+        tool_map=TOOL_MAP,
     )
     await persist_agent_history(session_id, [architect])
 
     editor = Agent("Editor", EDITOR_MODEL, EDITOR_SYSTEM)
     implementation = await editor.chat(
-        f"Task: {task}\n\nArchitect plan:\n{plan}\n\nImplement it.",
-        tools=TOOLS, tool_map=TOOL_MAP
+        f"Task: {task}\n\nArchitect plan:\n{plan}\n\nImplement it.", tools=TOOLS, tool_map=TOOL_MAP
     )
     await persist_agent_history(session_id, [editor])
 
     tester = Agent("Tester", EDITOR_MODEL, TESTER_SYSTEM)
     test_result = await tester.chat(
-        f"Task was: {task}\nPlan: {plan}\nTest and verify.",
-        tools=TOOLS, tool_map=TOOL_MAP
+        f"Task was: {task}\nPlan: {plan}\nTest and verify.", tools=TOOLS, tool_map=TOOL_MAP
     )
     await persist_agent_history(session_id, [tester])
 
@@ -634,18 +1033,26 @@ async def run_multi_agent(task: str):
             if pool is not None:
                 try:
                     async with pool.acquire() as conn:
-                        dup = await conn.fetchval("SELECT 1 FROM memory WHERE content_hash=$1 LIMIT 1", fp) is not None
+                        dup = (
+                            await conn.fetchval(
+                                "SELECT 1 FROM memory WHERE content_hash=$1 LIMIT 1", fp
+                            )
+                            is not None
+                        )
                 except Exception:
                     dup = False
             if dup:
                 logger.info("[Memory] Dedup skip — lesson already exists hash=%s", fp[:12])
             else:
                 lesson_emb = await embed(lesson_txt[:500])
-                await memory_mgr.add_memory("lesson", lesson_txt, CURRENT_PROJECT, embedding=lesson_emb)
+                await memory_mgr.add_memory(
+                    "lesson", lesson_txt, CURRENT_PROJECT, embedding=lesson_emb
+                )
         except Exception as e:
             logger.warning("Memory failed: %s", e)
 
     logger.info("Multi-agent task complete: %s", task)
+
 
 async def run_multi_agent_stream(task: str) -> AsyncGenerator[Dict[str, Any], None]:
     """Stream multi-agent progress as events for SSE (Completed Implementation)"""
@@ -653,24 +1060,51 @@ async def run_multi_agent_stream(task: str) -> AsyncGenerator[Dict[str, Any], No
     yield {"type": "start", "session_id": session_id, "task": task}
 
     # 1. Researcher Phase
-    yield {"type": "phase", "phase": "researcher", "status": "started", "message": "Searching brain..."}
+    yield {
+        "type": "phase",
+        "phase": "researcher",
+        "status": "started",
+        "message": "Searching brain...",
+    }
     brain_results = await search_brain(task, top_k=8)
-    brain_context = "\n".join(f"[{r['project_id']}/{r['file_path']}] {r['content'][:800]}" for r in brain_results)
-    yield {"type": "phase", "phase": "researcher", "status": "completed", "message": f"Found {len(brain_results)} relevant chunks", "data": {"chunks": len(brain_results)}}
-    
+    brain_context = "\n".join(
+        f"[{r['project_id']}/{r['file_path']}] {r['content'][:800]}" for r in brain_results
+    )
+    yield {
+        "type": "phase",
+        "phase": "researcher",
+        "status": "completed",
+        "message": f"Found {len(brain_results)} relevant chunks",
+        "data": {"chunks": len(brain_results)},
+    }
+
     try:
-        await save_conversation(session_id, "tool", brain_context[:8000], project_id=CURRENT_PROJECT)
+        await save_conversation(
+            session_id, "tool", brain_context[:8000], project_id=CURRENT_PROJECT
+        )
     except Exception as e:
         yield {"type": "warning", "message": f"Brain context save failed: {e}"}
 
     # 2. Architect Phase
-    yield {"type": "phase", "phase": "architect", "status": "started", "message": "Planning solution..."}
+    yield {
+        "type": "phase",
+        "phase": "architect",
+        "status": "started",
+        "message": "Planning solution...",
+    }
     architect = Agent("Architect", ARCHITECT_MODEL, ARCHITECT_SYSTEM)
     plan = await architect.chat(
         f"Task: {task}\n\nRelevant code from brain:\n{brain_context}\n\nCreate a plan: which project, which files, what changes, in what order. Be specific.",
-        tools=TOOLS, tool_map=TOOL_MAP
+        tools=TOOLS,
+        tool_map=TOOL_MAP,
     )
-    yield {"type": "phase", "phase": "architect", "status": "completed", "message": "Plan created", "data": {"plan": plan[:2000]}}
+    yield {
+        "type": "phase",
+        "phase": "architect",
+        "status": "completed",
+        "message": "Plan created",
+        "data": {"plan": plan[:2000]},
+    }
     try:
         await persist_agent_history(session_id, [architect])
     except Exception as e:
@@ -681,9 +1115,16 @@ async def run_multi_agent_stream(task: str) -> AsyncGenerator[Dict[str, Any], No
     editor = Agent("Editor", EDITOR_MODEL, EDITOR_SYSTEM)
     implementation = await editor.chat(
         f"Task: {task}\n\nArchitect plan:\n{plan}\n\nRelevant code:\n{brain_context}\n\nImplement it. Use tools to create/edit files.",
-        tools=TOOLS, tool_map=TOOL_MAP
+        tools=TOOLS,
+        tool_map=TOOL_MAP,
     )
-    yield {"type": "phase", "phase": "editor", "status": "completed", "message": "Implementation done", "data": {"implementation": implementation[:2000]}}
+    yield {
+        "type": "phase",
+        "phase": "editor",
+        "status": "completed",
+        "message": "Implementation done",
+        "data": {"implementation": implementation[:2000]},
+    }
     try:
         await persist_agent_history(session_id, [editor])
     except Exception as e:
@@ -694,9 +1135,16 @@ async def run_multi_agent_stream(task: str) -> AsyncGenerator[Dict[str, Any], No
     tester = Agent("Tester", EDITOR_MODEL, TESTER_SYSTEM)
     test_result = await tester.chat(
         f"Task was: {task}\nPlan: {plan}\nImplementation done. Now test it - run relevant tests, lint, check if it works. Fix if needed.",
-        tools=TOOLS, tool_map=TOOL_MAP
+        tools=TOOLS,
+        tool_map=TOOL_MAP,
     )
-    yield {"type": "phase", "phase": "tester", "status": "completed", "message": "Tests completed", "data": {"test_result": test_result[:2000]}}
+    yield {
+        "type": "phase",
+        "phase": "tester",
+        "status": "completed",
+        "message": "Tests completed",
+        "data": {"test_result": test_result[:2000]},
+    }
     try:
         await persist_agent_history(session_id, [tester])
     except Exception as e:
@@ -713,15 +1161,32 @@ async def run_multi_agent_stream(task: str) -> AsyncGenerator[Dict[str, Any], No
             if pool is not None:
                 try:
                     async with pool.acquire() as conn:
-                        dup = await conn.fetchval("SELECT 1 FROM memory WHERE content_hash=$1 LIMIT 1", fp) is not None
+                        dup = (
+                            await conn.fetchval(
+                                "SELECT 1 FROM memory WHERE content_hash=$1 LIMIT 1", fp
+                            )
+                            is not None
+                        )
                 except Exception:
                     dup = False
             if dup:
-                yield {"type": "phase", "phase": "memory", "status": "completed", "message": f"Lesson deduplicated (already exists hash={fp[:12]})"}
+                yield {
+                    "type": "phase",
+                    "phase": "memory",
+                    "status": "completed",
+                    "message": f"Lesson deduplicated (already exists hash={fp[:12]})",
+                }
             else:
                 lesson_emb = await embed(lesson_txt[:500])
-                await memory_mgr.add_memory("lesson", lesson_txt, CURRENT_PROJECT, embedding=lesson_emb)
-                yield {"type": "phase", "phase": "memory", "status": "completed", "message": "Lesson recorded in long-term memory"}
+                await memory_mgr.add_memory(
+                    "lesson", lesson_txt, CURRENT_PROJECT, embedding=lesson_emb
+                )
+                yield {
+                    "type": "phase",
+                    "phase": "memory",
+                    "status": "completed",
+                    "message": "Lesson recorded in long-term memory",
+                }
         except Exception as e:
             yield {"type": "warning", "message": f"Memory save failed: {e}"}
 
@@ -731,14 +1196,25 @@ async def run_multi_agent_stream(task: str) -> AsyncGenerator[Dict[str, Any], No
         status_result = tool_git_status()
         if status_result.strip():
             tool_git_commit(f"feat(agent): {task[:72]}")
-            yield {"type": "phase", "phase": "commit", "status": "completed", "message": "Auto-committed changes (tests passed)"}
+            yield {
+                "type": "phase",
+                "phase": "commit",
+                "status": "completed",
+                "message": "Auto-committed changes (tests passed)",
+            }
 
-    yield {"type": "done", "session_id": session_id, "message": "All agent phases completed successfully"}
+    yield {
+        "type": "done",
+        "session_id": session_id,
+        "message": "All agent phases completed successfully",
+    }
+
 
 def serve_fastapi():
     """Run the FastAPI server for Code It dashboard integration"""
     import uvicorn
     from api import app as fastapi_app
+
     uvicorn.run(fastapi_app, host="0.0.0.0", port=8000)
 
 

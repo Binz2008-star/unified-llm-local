@@ -10,6 +10,7 @@ Usage:
   sb switch <project>        # Switch repo
   sb ui                      # Start web UI + API
 """
+
 import sys
 import os
 from pathlib import Path
@@ -23,29 +24,45 @@ KB_ROOT = ROOT
 # Load .env from KB root
 try:
     from dotenv import load_dotenv
+
     load_dotenv(KB_ROOT / ".env")
 except Exception as e:
     print(f"[dotenv] {e}")
 
 
 def run(cmd, **kwargs):
+    """Run a command safely without shell=True."""
     print(f"$ {cmd}")
-    return subprocess.run(cmd, shell=True, **kwargs)
+    import shlex
+
+    try:
+        args = shlex.split(cmd)
+    except ValueError:
+        args = cmd.split()
+    return subprocess.run(args, shell=False, **kwargs)
 
 
 def _env_project_path(project_id: str) -> str | None:
     import brain_agent_v4 as ba
+
     p = ba.PROJECTS.get(project_id)
-    return str(p) if p else os.getenv(f"PROJECT_{project_id.upper().replace('-', '_')}") or os.getenv(f"PROJECT_{project_id.upper()}")
+    return (
+        str(p)
+        if p
+        else os.getenv(f"PROJECT_{project_id.upper().replace('-', '_')}")
+        or os.getenv(f"PROJECT_{project_id.upper()}")
+    )
 
 
 def cmd_chat(args):
     from brain_agent_v4 import interactive_v4
+
     asyncio.run(interactive_v4())
 
 
 def cmd_agent(args):
     from brain_agent_v4 import run_multi_agent
+
     task = " ".join(args.task) if args.task else args.prompt
     if not task:
         task = input("Task: ")
@@ -54,13 +71,18 @@ def cmd_agent(args):
 
 def cmd_search(args):
     from brain_agent_v4 import search_brain
+
     query = " ".join(args.query)
+
     async def do_search():
         results = await search_brain(query, top_k=args.top_k)
         for i, r in enumerate(results, 1):
-            print(f"\n{i}. [{r['project_id']}/{r['file_path']}] sim={float(r.get('similarity', 0)):.3f}")
+            print(
+                f"\n{i}. [{r['project_id']}/{r['file_path']}] sim={float(r.get('similarity', 0)):.3f}"
+            )
             print(f"   {r.get('chunk_name')}")
             print(f"   {r['content'][:500]}")
+
     asyncio.run(do_search())
 
 
@@ -74,8 +96,10 @@ def cmd_status(args):
     try:
         import asyncpg
         from dotenv import load_dotenv
+
         load_dotenv(KB_ROOT / ".env")
         DSN = os.getenv("NEON_DSN")
+
         async def check():
             conn = await asyncpg.connect(DSN, timeout=30)
             try:
@@ -92,12 +116,14 @@ def cmd_status(args):
                     print(f"  code_graph: n/a")
             finally:
                 await conn.close()
+
         asyncio.run(check())
     except Exception as e:
         print(f"  ❌ DB check failed: {e}")
 
     print("\n📁 Projects:")
     import brain_agent_v4 as ba
+
     for pid, root in ba.PROJECTS.items():
         exists = os.path.isdir(str(root))
         print(f"  {pid}={root} {'✅' if exists else '❌'}")
@@ -112,6 +138,7 @@ def cmd_status(args):
 
 def cmd_evolve(args):
     from evolve import evolve
+
     asyncio.run(evolve())
 
 
@@ -131,8 +158,11 @@ def cmd_switch(args):
     if env_path.exists():
         content = env_path.read_text()
         import re
+
         if "CURRENT_PROJECT" in content:
-            content = re.sub(r"CURRENT_PROJECT=.*", f"CURRENT_PROJECT={args.project}", content, flags=re.M)
+            content = re.sub(
+                r"CURRENT_PROJECT=.*", f"CURRENT_PROJECT={args.project}", content, flags=re.M
+            )
         else:
             content += f"\nCURRENT_PROJECT={args.project}\n"
         env_path.write_text(content)
@@ -174,7 +204,7 @@ def main():
         return
 
     args = parser.parse_args()
-    if hasattr(args, 'func'):
+    if hasattr(args, "func"):
         args.func(args)
     else:
         parser.print_help()
