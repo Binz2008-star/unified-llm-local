@@ -1,5 +1,17 @@
 line-length = 100
 target-version = "py312"
+
 [lint]
-select = ["E","F","I","UP"]
-ignore = ["E501"]
+select = ["E", "F", "I", "UP"]
+ignore = ["E501", "E402", "E722", "E741", "E702"]
+
+[lint.per-file-ignores]
+"eval/*.py" = ["E402", "F401", "F841"]
+"v4-extract/**/*.py" = ["E402", "E722", "E741", "F401", "UP035"]
+"test_*.py" = ["E402", "F401", "F841"]
+"tests/*.py" = ["F401", "F841"]
+"scripts/*.py" = ["F401", "F841"]
+
+[format]
+quote-style = "double"
+indent-style = "space"

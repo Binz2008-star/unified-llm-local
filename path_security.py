@@ -17,8 +17,8 @@ Security invariants:
 
 import os
 import re
-from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import Optional
+import stat as _stat
+from pathlib import Path
 
 
 class PathSecurityError(Exception):
@@ -111,21 +111,46 @@ class PathResolver:
         return False
 
     def _check_symlink_escape(self, resolved: Path, original_path: str):
-        """Check if a resolved path escapes the root through symlinks."""
+        """Check if a resolved path escapes the root through symlinks.
+
+        Checks the ORIGINAL (un-resolved) path components for symlinks,
+        because resolve() collapses symlinks and is_symlink() would return False.
+        We also verify the final resolved target is inside root.
+        """
         try:
-            # Check each component of the path
-            current = resolved
-            while current != current.parent:
-                if current.is_symlink():
-                    # Resolve the symlink target
-                    target = current.resolve()
-                    try:
-                        target.relative_to(self.root)
-                    except ValueError:
-                        raise PathSecurityError(
-                            f"Symlink escape detected: {original_path} -> {target}"
-                        )
-                current = current.parent
+            # Verify the final resolved path is inside root
+            try:
+                resolved.relative_to(self.root)
+            except ValueError:
+                raise PathSecurityError(
+                    f"Path escapes root directory after resolution: {original_path} -> {resolved}"
+                )
+
+            # Walk the ORIGINAL path components (before resolve) to detect symlinks
+            # Use os.lstat which does NOT follow symlinks, unlike stat()
+            original_parts = Path(original_path.replace("\\", "/")).parts
+            current = self.root
+            for part in original_parts:
+                current = current / part
+                try:
+                    # lstat returns info without following symlinks
+                    # If it's a symlink, st_mode will indicate it
+                    st = os.lstat(str(current))
+                    if _stat.S_ISLNK(st.st_mode):
+                        # Resolve this specific symlink and check target
+                        target = current.resolve()
+                        try:
+                            target.relative_to(self.root)
+                        except ValueError:
+                            raise PathSecurityError(
+                                f"Symlink escape detected: {original_path} "
+                                f"(component '{part}' -> {target})"
+                            )
+                except (OSError, FileNotFoundError):
+                    # Path component doesn't exist yet — fine, can't be a symlink
+                    pass
+        except PathSecurityError:
+            raise
         except OSError as e:
             raise PathSecurityError(f"Error checking symlinks: {e}")
 
@@ -172,7 +197,7 @@ class PathResolver:
 
 
 # Global resolver instance - initialized with the second-brain repository root
-_resolver: Optional[PathResolver] = None
+_resolver: PathResolver | None = None
 
 
 def init_resolver(root: Path) -> PathResolver:
