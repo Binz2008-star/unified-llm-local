@@ -19,6 +19,7 @@ import aiohttp
 import asyncpg
 from dotenv import load_dotenv
 
+from http_session import get_session
 from tool_security import (
     read_file,
     run_command,
@@ -205,16 +206,16 @@ except Exception as e:
 async def embed(text: str) -> list[float]:
     if not text or not text.strip():
         return [0.0] * EMBED_DIM
-    async with aiohttp.ClientSession() as session:
-        for _ in range(3):
-            try:
-                async with session.post(
-                    OLLAMA_EMBED_URL, json={"model": EMBED_MODEL, "input": text}
-                ) as resp:
-                    data = await resp.json()
-                    return data["embeddings"][0]
-            except Exception:
-                await asyncio.sleep(1)
+    session = await get_session(total_timeout=30, connect_timeout=10)
+    for _ in range(3):
+        try:
+            async with session.post(
+                OLLAMA_EMBED_URL, json={"model": EMBED_MODEL, "input": text}
+            ) as resp:
+                data = await resp.json()
+                return data["embeddings"][0]
+        except Exception:
+            await asyncio.sleep(1)
     raise RuntimeError("embed failed")
 
 
@@ -358,116 +359,113 @@ class Agent:
         consecutive_failures = 0
         last_failure = ""
 
-        async with aiohttp.ClientSession() as session:
-            for loop_idx in range(8):
-                payload = {"model": self.model, "messages": messages, "stream": False}
-                if tools:
-                    payload["tools"] = tools
+        session = await get_session(total_timeout=_settings.ollama_timeout, connect_timeout=60)
+        for loop_idx in range(8):
+            payload = {"model": self.model, "messages": messages, "stream": False}
+            if tools:
+                payload["tools"] = tools
 
-                # Ollama timeout from settings
-                ollama_timeout = _settings.ollama_timeout
-                try:
-                    async with session.post(
-                        OLLAMA_CHAT_URL,
-                        json=payload,
-                        timeout=aiohttp.ClientTimeout(total=ollama_timeout, connect=60),
-                    ) as resp:
-                        data = await resp.json()
-                except (TimeoutError, aiohttp.ClientError) as e:
-                    consecutive_failures += 1
-                    last_failure = (
-                        f"model {self.model} call failed ({type(e).__name__}: {str(e)[:150]})"
+            try:
+                async with session.post(
+                    OLLAMA_CHAT_URL,
+                    json=payload,
+                ) as resp:
+                    data = await resp.json()
+            except (TimeoutError, aiohttp.ClientError) as e:
+                consecutive_failures += 1
+                last_failure = (
+                    f"model {self.model} call failed ({type(e).__name__}: {str(e)[:150]})"
+                )
+                logger.warning(
+                    "[%s] Model call failed %d/%d (loop %d/8): %s",
+                    self.name,
+                    consecutive_failures,
+                    max_failures,
+                    loop_idx + 1,
+                    last_failure,
+                )
+                if consecutive_failures >= max_failures:
+                    return (
+                        f"[AGENT GAVE UP] {consecutive_failures} consecutive model failures "
+                        f"(cap {max_failures}); last: {last_failure}. "
+                        f"Ollama {self.model} appears unavailable/hung (deepseek→qwen hang guard). "
+                        "Check `ollama ps` and `ollama list`, ensure qwen2.5:7b is pulled and VRAM free."
                     )
-                    logger.warning(
-                        "[%s] Model call failed %d/%d (loop %d/8): %s",
-                        self.name,
-                        consecutive_failures,
-                        max_failures,
-                        loop_idx + 1,
-                        last_failure,
+                await asyncio.sleep(2 * consecutive_failures)
+                continue
+            if "error" in data:
+                err = str(data["error"])
+                consecutive_failures += 1
+                last_failure = f"model {self.model} error: {err[:200]}"
+                logger.warning(
+                    "[%s] Model returned error %d/%d: %s",
+                    self.name,
+                    consecutive_failures,
+                    max_failures,
+                    last_failure,
+                )
+                # For 'model not found' or after cap, give up immediately with clear message
+                if (
+                    consecutive_failures >= max_failures
+                    or "not found" in err.lower()
+                    or "connection" in err.lower()
+                ):
+                    return (
+                        f"[AGENT GAVE UP] Ollama error after {consecutive_failures} consecutive failures "
+                        f"(cap {max_failures}): {err}. Check Ollama and model {self.model}."
                     )
-                    if consecutive_failures >= max_failures:
-                        return (
-                            f"[AGENT GAVE UP] {consecutive_failures} consecutive model failures "
-                            f"(cap {max_failures}); last: {last_failure}. "
-                            f"Ollama {self.model} appears unavailable/hung (deepseek→qwen hang guard). "
-                            "Check `ollama ps` and `ollama list`, ensure qwen2.5:7b is pulled and VRAM free."
-                        )
-                    await asyncio.sleep(2 * consecutive_failures)
-                    continue
-                if "error" in data:
-                    err = str(data["error"])
-                    consecutive_failures += 1
-                    last_failure = f"model {self.model} error: {err[:200]}"
-                    logger.warning(
-                        "[%s] Model returned error %d/%d: %s",
-                        self.name,
-                        consecutive_failures,
-                        max_failures,
-                        last_failure,
-                    )
-                    # For 'model not found' or after cap, give up immediately with clear message
-                    if (
-                        consecutive_failures >= max_failures
-                        or "not found" in err.lower()
-                        or "connection" in err.lower()
-                    ):
-                        return (
-                            f"[AGENT GAVE UP] Ollama error after {consecutive_failures} consecutive failures "
-                            f"(cap {max_failures}): {err}. Check Ollama and model {self.model}."
-                        )
-                    await asyncio.sleep(2)
-                    continue
-                # model succeeded — don't reset yet; let tool result decide (unless no tools)
-                msg = data["message"]
+                await asyncio.sleep(2)
+                continue
+            # model succeeded — don't reset yet; let tool result decide (unless no tools)
+            msg = data["message"]
 
-                if not msg.get("tool_calls"):
-                    self.history.append(msg)
-                    return msg.get("content", "")
-
-                messages.append(msg)
+            if not msg.get("tool_calls"):
                 self.history.append(msg)
-                turn_failed = False
-                turn_succeeded = False
-                for tc in msg["tool_calls"]:
-                    fname = tc["function"]["name"]
-                    args = tc["function"].get("arguments", {})
-                    args = args if isinstance(args, dict) else json.loads(args or "{}")
-                    func = tool_map.get(fname) if tool_map else None
-                    result = "Tool not found"
-                    if func:
-                        try:
-                            result = (
-                                await func(**args)
-                                if asyncio.iscoroutinefunction(func)
-                                else func(**args)
-                            )
-                        except Exception as e:
-                            result = f"Error: {e}"
-                    if _tool_result_failed(result):
-                        turn_failed = True
-                        last_failure = f"{fname}: {str(result)[:200]}"
-                    else:
-                        turn_succeeded = True
-                    tool_msg = {
-                        "role": "tool",
-                        "name": fname,
-                        "args": args,
-                        "content": str(result)[:8000],
-                    }
-                    messages.append(tool_msg)
-                    self.history.append(tool_msg)
+                return msg.get("content", "")
 
-                if turn_succeeded:
-                    consecutive_failures = 0
-                elif turn_failed:
-                    consecutive_failures += 1
-                    if consecutive_failures >= max_failures:
-                        return (
-                            f"[AGENT GAVE UP] {consecutive_failures} consecutive tool failures "
-                            f"(cap {max_failures}); the last failure was: {last_failure}. "
-                            "Stopped instead of looping forever."
+            messages.append(msg)
+            self.history.append(msg)
+            turn_failed = False
+            turn_succeeded = False
+            for tc in msg["tool_calls"]:
+                fname = tc["function"]["name"]
+                args = tc["function"].get("arguments", {})
+                args = args if isinstance(args, dict) else json.loads(args or "{}")
+                func = tool_map.get(fname) if tool_map else None
+                result = "Tool not found"
+                if func:
+                    try:
+                        result = (
+                            await func(**args)
+                            if asyncio.iscoroutinefunction(func)
+                            else func(**args)
                         )
+                    except Exception as e:
+                        result = f"Error: {e}"
+                if _tool_result_failed(result):
+                    turn_failed = True
+                    last_failure = f"{fname}: {str(result)[:200]}"
+                else:
+                    turn_succeeded = True
+                tool_msg = {
+                    "role": "tool",
+                    "name": fname,
+                    "args": args,
+                    "content": str(result)[:8000],
+                }
+                messages.append(tool_msg)
+                self.history.append(tool_msg)
+
+            if turn_succeeded:
+                consecutive_failures = 0
+            elif turn_failed:
+                consecutive_failures += 1
+                if consecutive_failures >= max_failures:
+                    return (
+                        f"[AGENT GAVE UP] {consecutive_failures} consecutive tool failures "
+                        f"(cap {max_failures}); the last failure was: {last_failure}. "
+                        "Stopped instead of looping forever."
+                    )
 
         return "Max tool loops reached"
 
@@ -846,23 +844,21 @@ class SelfHealingRunner:
         return {"status": "failed", "attempts": self.max_retries, "last_output": test_output}
 
     async def _get_fix_from_llm(self, prompt: str) -> str:
-        async with aiohttp.ClientSession() as session:
-            payload = {
-                "model": EDITOR_MODEL,
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": "You are an expert code fixer. Return only the corrected file content without any markdown or explanation.",
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-                "stream": False,
-            }
-            async with session.post(
-                OLLAMA_CHAT_URL, json=payload, timeout=aiohttp.ClientTimeout(total=300)
-            ) as resp:
-                data = await resp.json()
-                return data["message"]["content"].strip()
+        session = await get_session(total_timeout=300, connect_timeout=30)
+        payload = {
+            "model": EDITOR_MODEL,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You are an expert code fixer. Return only the corrected file content without any markdown or explanation.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            "stream": False,
+        }
+        async with session.post(OLLAMA_CHAT_URL, json=payload) as resp:
+            data = await resp.json()
+            return data["message"]["content"].strip()
 
 
 def _projects_line():
