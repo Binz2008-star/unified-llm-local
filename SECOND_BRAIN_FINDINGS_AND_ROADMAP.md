@@ -125,6 +125,24 @@ After these fixes: OpenCode → MCP server → brain_agent_v4.py → Ollama + Po
 
 ---
 
+## ✅ SB-20260907-DOCKER-FIX — 2026-09-07 (Completed)
+
+**Task ID**: SB-20260907-DOCKER-FIX
+**Agent**: opencode
+**Status**: COMPLETE
+**Summary**: Fixed Docker build/runtime for second-brain-v4 to use host Ollama.
+
+| # | Fix | File | Status |
+|---|-----|------|--------|
+| 1 | Add missing Python modules to Dockerfile | Dockerfile.v4:13 | ✅ DONE |
+| 2 | Move ollama to optional profile | docker-compose.v4.yml | ✅ DONE |
+| 3 | Remove ollama from depends_on | docker-compose.v4.yml:60 | ✅ DONE |
+| 4 | Add model config to override | docker-compose.override.yml | ✅ DONE |
+
+**Architecture**: Ollama runs on host → container connects via `host.docker.internal:11434`
+
+---
+
 ## 📋 Handoff Update (SB-20260906-FULL-AUDIT)
 
 The following section should be appended to `C:\Users\loyal\unified-llm-local\HANDOFF.md`:

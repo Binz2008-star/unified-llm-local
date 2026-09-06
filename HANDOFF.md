@@ -260,3 +260,42 @@ python -c "import mcp_server_v4"  # ✅ No import errors
 - `conversations` table now auto-populated via `save_conversation()` in agent pipeline.
 
 **Reference Document**: `SECOND_BRAIN_FINDINGS_AND_ROADMAP.md` (updated)
+
+---
+
+## SB-20260907-DOCKER-FIX — 2026-09-07 (Completed)
+
+**Task ID**: SB-20260907-DOCKER-FIX
+**Agent**: opencode
+**Status**: COMPLETE
+**Summary**: Fixed Docker build and runtime for second-brain-v4 container to use host Ollama.
+
+### Fixes Applied
+
+| # | Issue | File | Fix |
+|---|-------|------|-----|
+| 1 | Missing Python modules in container | `Dockerfile.v4:13` | Added all security/http modules to COPY (http_session, tool_security, path_security, git_security, protected_path_policy, merge_lock, merge_gate, rollback, worktree, test_evidence, app_settings, context_builder) |
+| 2 | Ollama port conflict (11434) | `docker-compose.v4.yml:26` | Moved ollama service to `ollama` profile (optional) |
+| 3 | Container depended on ollama service | `docker-compose.v4.yml:60` | Removed `ollama` from `depends_on` |
+| 4 | Model config not in container | `docker-compose.override.yml` | Added ARCHITECT/EDITOR/CHAT/EMBED_MODEL env vars |
+
+### Files Modified
+- `Dockerfile.v4` — Added 12 missing Python module files
+- `docker-compose.v4.yml` — Added `profiles: ["ollama"]` to ollama service, removed from depends_on
+- `docker-compose.override.yml` — Added model configuration for container
+
+### Verification
+```bash
+# Start services (uses host Ollama)
+docker compose -f docker-compose.v4.yml -f docker-compose.override.yml up -d --build
+
+# Verify
+curl http://localhost:8000/api/status   # ✅ model: qwen2.5-coder:14b
+curl http://localhost:8000/api/search   # ✅ Hybrid search works
+docker ps                               # ✅ Both containers healthy
+```
+
+### Architecture Note
+- **Ollama runs on host** (not in Docker) — avoids port conflicts, uses your GPU
+- **Container connects via** `host.docker.internal:11434` (set in override)
+- **Profile `ollama`** available if you want containerized Ollama: `docker compose --profile ollama up`
