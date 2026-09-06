@@ -1,45 +1,68 @@
+# Environment variables
 .env
+.env.*
+!.env.example
+
+# Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 .Python
-venv/
-env/
-.venv/
-*.log
-*.sqlite
-*.db
-.DS_Store
-Thumbs.db
-*.swp
-*.swo
-*~
-.vscode/
-.idea/
 *.egg-info/
 dist/
 build/
+.eggs/
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Testing
 .coverage
 .pytest_cache/
+htmlcov/
+coverage.xml
+
+# Linting
 .mypy_cache/
 .ruff_cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/*.jsonl
+logs/*.log
+
+# Database
+*.sqlite
+*.db
+pgdata/
+ollama_data/
 
 # Hugging Face cache and large model files
 hf_cache/
 *.zip
 *.safetensors
 *.bin
-*.lock
 
-# Docker volumes & data
-pgdata/
-ollama_data/
+# Docker
 .env.prod
 .env.prod.example
 data.json
+
 # Secrets — never commit real env
-.env
 *.pem
 *.key
 client_secret*.json
@@ -49,9 +72,5 @@ token.json
 node_modules/
 *.tsbuildinfo
 
-# OS/IDE
-*.swp
-*.swo
-*~
-logs/*.jsonl
-logs/*.log
+# Lock files (use requirements.txt for Python pinning)
+*.lock
