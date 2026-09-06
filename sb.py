@@ -14,7 +14,6 @@ Usage:
 import argparse
 import asyncio
 import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -39,9 +38,9 @@ def run(cmd, *, cwd=None, **kwargs):
     import shlex
 
     try:
-        args = shlex.split(cmd)
+        shlex.split(cmd)
     except ValueError:
-        args = cmd.split()
+        pass
 
     loop = asyncio.new_event_loop()
     try:

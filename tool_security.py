@@ -21,13 +21,18 @@ from pathlib import Path
 from protected_path_policy import (
     ProtectedPathError,
     assert_mutation_allowed,
-    contains_secret_content,
-    delete_file as policy_delete_file,
-    is_protected_path,
-    rename_file as policy_rename_file,
-    copy_file as policy_copy_file,
     validate_file_content,
 )
+from protected_path_policy import (
+    copy_file as policy_copy_file,
+)
+from protected_path_policy import (
+    delete_file as policy_delete_file,
+)
+from protected_path_policy import (
+    rename_file as policy_rename_file,
+)
+from test_evidence import TestEvidence, collect_evidence
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +145,7 @@ class CommandResult:
     timed_out: bool = False
     blocked: bool = False
     block_reason: str = ""
+    evidence: TestEvidence | None = None
 
 
 @dataclass
@@ -275,6 +281,8 @@ async def run_command(
     timeout_seconds: int = 120,
     max_output_bytes: int = 200_000,
     trusted: bool = False,
+    task_id: str | None = None,
+    collect_evidence_flag: bool = False,
 ) -> CommandResult:
     """
     Execute a command with full security validation.
@@ -284,10 +292,13 @@ async def run_command(
     - Enforces timeout
     - Limits output size
     - Logs audit entry
+    - Optionally collects TestEvidence
 
     Args:
         trusted: If True, bypasses argument checks for internal operations
                  (worktree cleanup, etc.). Never expose to agent/LLM.
+        task_id: Task identifier for evidence collection.
+        collect_evidence_flag: If True, collect evidence after execution.
     """
     start = time.monotonic()
 
@@ -353,12 +364,25 @@ async def run_command(
                 output_bytes=0,
             )
             _audit(entry)
-            return CommandResult(
+            result = CommandResult(
                 exit_code=124,
                 stdout="",
                 stderr=f"Command timed out after {timeout_seconds}s",
                 timed_out=True,
             )
+            if collect_evidence_flag and task_id:
+                result.evidence = collect_evidence(
+                    task_id=task_id,
+                    command=tuple(command.split()),
+                    exit_code=124,
+                    timed_out=True,
+                    started_at=start,
+                    finished_at=time.monotonic(),
+                    stdout="",
+                    stderr=f"Command timed out after {timeout_seconds}s",
+                    workspace=workspace,
+                )
+            return result
 
         # Truncate output
         stdout_str = stdout_bytes.decode(errors="replace")[:max_output_bytes]
@@ -377,11 +401,24 @@ async def run_command(
         )
         _audit(entry)
 
-        return CommandResult(
+        result = CommandResult(
             exit_code=process.returncode or 0,
             stdout=stdout_str,
             stderr=stderr_str,
         )
+        if collect_evidence_flag and task_id:
+            result.evidence = collect_evidence(
+                task_id=task_id,
+                command=tuple(command.split()),
+                exit_code=process.returncode or 0,
+                timed_out=False,
+                started_at=start,
+                finished_at=time.monotonic(),
+                stdout=stdout_str,
+                stderr=stderr_str,
+                workspace=workspace,
+            )
+        return result
 
     except Exception as e:
         duration_ms = int((time.monotonic() - start) * 1000)
