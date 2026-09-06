@@ -10,7 +10,7 @@ FROM python:3.12-slim
 RUN apt-get update && apt-get install -y --no-install-recommends curl libpq5 && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=builder /install /usr/local
-COPY api.py brain_agent_v4.py memory.py evolve.py sb.py reindex_v4.py chunker_v4.py schema_v4.sql AGENTS.md EVOLVE_TODO.md ./
+COPY api.py brain_agent_v4.py memory.py evolve.py sb.py reindex_v4.py chunker_v4.py schema_v4.sql AGENTS.md EVOLVE_TODO.md http_session.py tool_security.py path_security.py git_security.py protected_path_policy.py merge_lock.py merge_gate.py rollback.py worktree.py test_evidence.py app_settings.py context_builder.py ./
 COPY eval/ eval/
 COPY ui/ ui/
 RUN mkdir -p /app/memory /app/logs /app/ui /app/eval /app/projects

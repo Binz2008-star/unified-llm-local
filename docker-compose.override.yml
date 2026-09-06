@@ -7,6 +7,10 @@ services:
       - OLLAMA_CHAT_URL=http://host.docker.internal:11434/api/chat
       - LOCAL_DSN=postgresql://postgres:password@db:5432/second_brain
       - DATABASE_URL=postgresql://postgres:password@db:5432/second_brain
+      - ARCHITECT_MODEL=qwen2.5-coder:14b
+      - EDITOR_MODEL=qwen2.5-coder:14b
+      - CHAT_MODEL=qwen2.5-coder:14b
+      - EMBED_MODEL=nomic-embed-text
 
   db:
     ports: ["5432:5432"]

@@ -29,6 +29,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    profiles: ["ollama"]
 
   second-brain-v4:
     build: { context: ., dockerfile: Dockerfile.v4 }
@@ -57,7 +58,6 @@ services:
     ports: ["8000:8000"]
     depends_on:
       db: { condition: service_healthy }
-      ollama: { condition: service_healthy }
     restart: unless-stopped
     command: python api.py
     healthcheck:
