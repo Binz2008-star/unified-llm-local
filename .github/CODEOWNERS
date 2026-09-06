@@ -1,8 +1,20 @@
 # Default owners for everything
 * @Binz2008-star
 
-# Sensitive paths require explicit review
-/.env.example @Binz2008-star
-/.github/workflows/ @Binz2008-star
-/api.py @Binz2008-star
+# Security-critical paths require explicit review
+/git_security.py @Binz2008-star
+/path_security.py @Binz2008-star
+/worktree.py @Binz2008-star
+/merge_gate.py @Binz2008-star
 /brain_agent_v4.py @Binz2008-star
+/api.py @Binz2008-star
+
+# CI/CD
+/.github/ @Binz2008-star
+
+# Configuration
+/.env.example @Binz2008-star
+/Dockerfile* @Binz2008-star
+/docker-compose*.yml @Binz2008-star
+/pyproject.toml @Binz2008-star
+/requirements.txt @Binz2008-star

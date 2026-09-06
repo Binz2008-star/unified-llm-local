@@ -1,7 +1,8 @@
-import os
 # Gate is in brain_agent_v4.py Agent.chat — unit test the helper _tool_result_failed
 def test_tool_result_failed():
-    import importlib.util, pathlib
+    import importlib.util
+    import pathlib
+
     p = pathlib.Path("brain_agent_v4.py")
     if not p.exists():
         p = pathlib.Path("X:/unified-llm-local/brain_agent_v4.py")

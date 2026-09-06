@@ -3,14 +3,17 @@
 Second Brain v4 - Installer & Migrator
 Evolves from v3 to v4 with one command
 """
+
 import os
 import shutil
-from pathlib import Path
 import subprocess
+from pathlib import Path
+
 
 def run(cmd):
     print(f"$ {cmd}")
-    subprocess.run(cmd, shell=True)
+    subprocess.run(cmd, shell=True)  # nosec B602 - installer helper, trusted input
+
 
 def main():
     print("""
@@ -19,44 +22,51 @@ def main():
 ║  From simple indexer -> Self-evolving multi-agent   ║
 ╚══════════════════════════════════════════════════════╝
 """)
-    
+
     v3_root = Path("X:/second-brain-kb")
     v4_root = Path(__file__).parent
-    
+
     # 1. Copy .env from v3
     if (v3_root / ".env").exists() and not (v4_root / ".env").exists():
         shutil.copy(v3_root / ".env", v4_root / ".env")
         print("✅ Copied .env from v3")
-    
+
     # 2. Create memory dir
     (v4_root / "memory").mkdir(exist_ok=True)
     (v4_root / "logs").mkdir(exist_ok=True)
     (v4_root / "ui").mkdir(exist_ok=True)
-    
+
     # 3. Install deps
     print("\n📦 Installing v4 dependencies...")
     run(f'pip install -r "{v4_root / "requirements.txt"}"')
-    
+
     # 4. Run schema migration
     print("\n🗄️  Migrating Neon schema to v4 (hybrid search + memory)...")
     # Import and run schema
     import sys
+
     sys.path.insert(0, str(v4_root))
-    from chunker_v4 import V4_SCHEMA_SQL
-    import asyncio, asyncpg
+    import asyncio
+
+    import asyncpg
     from dotenv import load_dotenv
+
+    from chunker_v4 import V4_SCHEMA_SQL
+
     load_dotenv(v4_root / ".env")
-    
+
     async def migrate():
         conn = await asyncpg.connect(os.getenv("NEON_DSN"))
         try:
             await conn.execute(V4_SCHEMA_SQL)
-            print("✅ Schema v4 migrated (chunks_v4, code_graph, conversations, memory, hybrid_search)")
+            print(
+                "✅ Schema v4 migrated (chunks_v4, code_graph, conversations, memory, hybrid_search)"
+            )
         finally:
             await conn.close()
-    
+
     asyncio.run(migrate())
-    
+
     # 5. Create sb.bat for Windows
     sb_bat = v4_root / "sb.bat"
     sb_bat.write_text(f"""@echo off
@@ -64,7 +74,7 @@ cd /d {v4_root}
 python sb.py %*
 """)
     print(f"✅ Created {sb_bat} - now you can run sb chat from anywhere")
-    
+
     # Add to PATH? Create alias
     print(f"""
 ✅ v4 Installed!
@@ -93,11 +103,12 @@ MCP for OpenCode:
     "mcpServers": {{
       "second-brain": {{
         "command": "python",
-        "args": ["{v4_root / 'mcp_server.py'}"]
+        "args": ["{v4_root / "mcp_server.py"}"]
       }}
     }}
   }}
 """)
+
 
 if __name__ == "__main__":
     main()

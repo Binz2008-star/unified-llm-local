@@ -6,12 +6,14 @@ Usage:
   python migrate_v4.py            # create v4 tables + migrate chunks -> chunks_v4
   python migrate_v4.py --check    # verify schema + counts only
 """
+
 import asyncio
 import os
 import sys
 from pathlib import Path
-from dotenv import load_dotenv
+
 import asyncpg
+from dotenv import load_dotenv
 
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT / "v4-extract" / "second-brain-v4"))
@@ -133,8 +135,13 @@ async def populate_projects(conn):
     for p in projects:
         pid = p["project_id"]
         path = env_map.get(pid, "")
-        await conn.execute("""INSERT INTO projects (id, name, path)
-            VALUES ($1,$2,$3) ON CONFLICT (id) DO NOTHING""", pid, pid, path)
+        await conn.execute(
+            """INSERT INTO projects (id, name, path)
+            VALUES ($1,$2,$3) ON CONFLICT (id) DO NOTHING""",
+            pid,
+            pid,
+            path,
+        )
         n += 1
     print(f"  projects synced: {n}")
 
@@ -143,20 +150,34 @@ async def migrate_chunks(conn):
     existing = await conn.fetchval("SELECT COUNT(*) FROM chunks_v4")
     chunks = await conn.fetch("""SELECT project_id, file_path, chunk_index, content,
         content_hash, language, start_line, end_line, embedding FROM chunks ORDER BY id""")
-    rows = [(c["project_id"], c["file_path"], c["chunk_index"], c["content"],
-             c["content_hash"], c["language"], c["start_line"], c["end_line"],
-             emb_str(c["embedding"])) for c in chunks]
+    rows = [
+        (
+            c["project_id"],
+            c["file_path"],
+            c["chunk_index"],
+            c["content"],
+            c["content_hash"],
+            c["language"],
+            c["start_line"],
+            c["end_line"],
+            emb_str(c["embedding"]),
+        )
+        for c in chunks
+    ]
     print(f"  source chunks: {len(rows)} | chunks_v4 already: {existing}")
 
     i = 0
     while i < len(rows):
-        batch = rows[i:i + BATCH]
-        await conn.executemany("""
+        batch = rows[i : i + BATCH]
+        await conn.executemany(
+            """
             INSERT INTO chunks_v4 (project_id, file_path, chunk_index, chunk_type,
                 chunk_name, content, content_hash, language, start_line, end_line, embedding)
             VALUES ($1,$2,$3,'generic',NULL,$4,$5,$6,$7,$8,$9::vector)
             ON CONFLICT (project_id, file_path, chunk_index) DO NOTHING
-        """, batch)
+        """,
+            batch,
+        )
         i += BATCH
     cnt = await conn.fetchval("SELECT COUNT(*) FROM chunks_v4")
     print(f"  FINAL chunks_v4: {cnt}")
@@ -173,7 +194,7 @@ async def check(conn):
     print(f"hybrid_search() exists: {bool(fn)}")
     print(f"rows with NULL content_tsv: {tsv}")
     print(f"projects: {[r['id'] for r in proj]}")
-    ok = (v3 == v4 == 651 and fn == 1)
+    ok = v3 == v4 == 651 and fn == 1
     print("MIGRATION OK" if ok else "MIGRATION INCOMPLETE")
 
 

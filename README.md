@@ -1,5 +1,8 @@
 # Second Brain v4 — Autonomous Self-Evolving Code Knowledge Base (Code It)
 
+[![CI/CD Pipeline](https://github.com/Binz2008-star/unified-llm-local/actions/workflows/ci.yml/badge.svg)](https://github.com/Binz2008-star/unified-llm-local/actions/workflows/ci.yml)
+[![Secret Scanning](https://github.com/Binz2008-star/unified-llm-local/actions/workflows/secret-scan.yml/badge.svg)](https://github.com/Binz2008-star/unified-llm-local/actions/workflows/secret-scan.yml)
+
 A local-first, AI-powered knowledge base that indexes your code, enables semantic search, runs multi-agent coding tasks, and evolves itself over time. Includes **Code It** — a modern chat-first React/TypeScript dashboard.
 
 ## Features
