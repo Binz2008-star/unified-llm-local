@@ -1,0 +1,3 @@
+[bandit]
+exclude = .venv,node_modules,ai-dashboard,.git,.ruff_cache,.pytest_cache,__pycache__
+skips = B101,B311,B404,B603

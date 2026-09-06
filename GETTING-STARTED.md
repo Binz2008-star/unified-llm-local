@@ -61,9 +61,11 @@ python query.py
 import asyncio
 from test_search import search_kb
 
+
 async def main():
     results = await search_kb("your query here", top_k=5)
     print(results)
+
 
 asyncio.run(main())
 ```
@@ -261,29 +263,35 @@ import os
 
 load_dotenv()
 
+
 async def search(query: str):
     # Get embedding
     from test_search import get_embedding
+
     embedding = await get_embedding(query)
-    
+
     # Search DB
-    conn = await asyncpg.connect(os.getenv('NEON_DSN'))
-    results = await conn.fetch('''
+    conn = await asyncpg.connect(os.getenv("NEON_DSN"))
+    results = await conn.fetch(
+        """
         SELECT project_id, file_path, content, 
                1 - (embedding <=> $1::vector) as similarity
         FROM chunks
         WHERE embedding IS NOT NULL
         ORDER BY embedding <=> $1::vector LIMIT 5
-    ''', '[' + ','.join(str(x) for x in embedding) + ']')
-    
+    """,
+        "[" + ",".join(str(x) for x in embedding) + "]",
+    )
+
     await conn.close()
     return results
+
 
 # Use it:
 results = asyncio.run(search("your query"))
 for r in results:
     print(f"{r['project_id']}: {r['similarity']:.1%}")
-    print(r['content'][:200])
+    print(r["content"][:200])
 ```
 
 ### C. Batch Searching

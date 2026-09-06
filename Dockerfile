@@ -1,22 +1,25 @@
-FROM python:3.11-slim
+FROM python:3.12-slim AS builder
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential libpq-dev curl git && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt \
+ && pip install --no-cache-dir --prefix=/install fastapi uvicorn python-multipart jinja2 asyncpg aiohttp python-dotenv watchdog psutil
+
+FROM python:3.12-slim
+RUN apt-get update && apt-get install -y --no-install-recommends curl libpq5 && rm -rf /var/lib/apt/lists/*
+
+RUN useradd -m -u 1000 appuser && mkdir -p /app/memory /app/logs /app/ui /app/eval /app/projects && chown -R appuser:appuser /app
 
 WORKDIR /app
+COPY --from=builder /install /usr/local
+COPY --chown=appuser:appuser api.py brain_agent_v4.py memory.py evolve.py sb.py reindex_v4.py chunker_v4.py schema_v4.sql ./
+COPY --chown=appuser:appuser git_security.py path_security.py worktree.py merge_gate.py context_builder.py ./
+COPY --chown=appuser:appuser AGENTS.md EVOLVE_TODO.md ./
+COPY --chown=appuser:appuser eval/ eval/
+COPY --chown=appuser:appuser ui/ ui/
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential libpq-dev \
-    && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p /root/.cache/huggingface /app/logs
-
-COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r requirements.txt
-
-COPY ingest.py ingest_hf.py schema.sql ./
-
-RUN mkdir -p /app/projects/content-engine /app/projects/lvyy /app/projects/rico /app/logs
-
-ENV WATCHDOG_POLLING=true
-ENV PYTHONUNBUFFERED=1
-ENV HF_HOME=/root/.cache/huggingface
-
-CMD ["python", "ingest_hf.py"]
+USER appuser
+EXPOSE 8000
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=30s CMD curl -f http://localhost:8000/api/status || exit 1
+CMD ["python", "api.py"]

@@ -2,16 +2,17 @@
 Evolve - Self-evolution engine
 Agent analyzes its own failures and improves its tools/code
 """
+
 import asyncio
 import hashlib
 import os
 import re
-from pathlib import Path
 from datetime import datetime
-from typing import Optional
+from pathlib import Path
+
+import aiohttp
 import asyncpg
 from dotenv import load_dotenv
-import aiohttp
 
 ROOT = Path(__file__).parent
 load_dotenv(ROOT / ".env")
@@ -22,13 +23,14 @@ EMBED_MODEL = os.getenv("EMBED_MODEL", "nomic-embed-text")
 # Durable-state AGENTS.md is what OpenCode loads into context each session.
 AGENTS_MD = Path(os.getenv("SECOND_BRAIN_AGENTS_MD", str(Path(__file__).parent / "AGENTS.md")))
 
+
 class Evolver:
     def __init__(self):
         self.root = ROOT
         self.memory_dir = self.root / "memory"
         self.memory_dir.mkdir(exist_ok=True)
         self._pool = None
-        self._session: Optional[aiohttp.ClientSession] = None
+        self._session: aiohttp.ClientSession | None = None
 
     async def _get_session(self):
         if self._session is None or self._session.closed:
@@ -39,7 +41,9 @@ class Evolver:
 
     async def get_pool(self):
         if self._pool is None:
-            self._pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=4, command_timeout=120)
+            self._pool = await asyncpg.create_pool(
+                DATABASE_URL, min_size=1, max_size=4, command_timeout=120
+            )
         return self._pool
 
     async def embed(self, text: str):
@@ -49,7 +53,9 @@ class Evolver:
         session = await self._get_session()
         for _ in range(3):
             try:
-                async with session.post(OLLAMA_EMBED_URL, json={"model": EMBED_MODEL, "input": text}) as r:
+                async with session.post(
+                    OLLAMA_EMBED_URL, json={"model": EMBED_MODEL, "input": text}
+                ) as r:
                     j = await r.json()
                     return j["embeddings"][0]
             except Exception:
@@ -99,19 +105,21 @@ class Evolver:
             if "File not found" in f or "No such file" in f:
                 fixes.append("Improve path resolution - add more fallback paths for project roots")
             if "embedding" in f.lower() and "vector" in f.lower():
-                fixes.append("Vector dimension mismatch - check EMBED_DIM consistency across stores")
+                fixes.append(
+                    "Vector dimension mismatch - check EMBED_DIM consistency across stores"
+                )
             if "timeout" in f.lower() or "timed out" in f.lower():
                 fixes.append("Increase shell/chat timeout, add retry with backoff")
 
         if fixes:
             lessons_path = self.memory_dir / "LESSONS.md"
             unique_fixes = list(set(fixes))
-            with open(lessons_path, 'a', encoding='utf-8') as fh:
+            with open(lessons_path, "a", encoding="utf-8") as fh:
                 fh.write(f"\n## {datetime.now()} - Auto-evolution\n")
                 for fix in unique_fixes:
                     fh.write(f"- {fix}\n")
             print(f"📝 Added {len(unique_fixes)} lessons to {lessons_path}")
-            
+
             # Auto-embed lessons for searchable memory
             print("🔮 Embedding lessons for searchable memory...")
             pool = await self.get_pool()
@@ -123,7 +131,8 @@ class Evolver:
                     lesson_id = f"{datetime.now():%Y-%m-%d-%H%M}-{hashlib.md5(fix.encode()).hexdigest()[:10]}"
                     tags = ["auto", "failure", "lesson"]
                     async with pool.acquire() as conn:
-                        await conn.execute("""
+                        await conn.execute(
+                            """
                             INSERT INTO memory
                                 (lesson_id, source_file, content, embedding, tags, type, project_id, linked_chunk_id)
                             VALUES ($1, $2, $3, $4::vector, $5, 'lesson', $6, NULL)
@@ -131,7 +140,14 @@ class Evolver:
                                 content = EXCLUDED.content,
                                 embedding = EXCLUDED.embedding,
                                 tags = EXCLUDED.tags
-                        """, lesson_id, "memory/LESSONS.md", fix, emb_str, tags, "second-brain")
+                        """,
+                            lesson_id,
+                            "memory/LESSONS.md",
+                            fix,
+                            emb_str,
+                            tags,
+                            "second-brain",
+                        )
                     print(f"   ✓ Embedded: {fix[:60]}... (lesson_id={lesson_id})")
                 except Exception as e:
                     print(f"   ⚠️ Failed to embed lesson: {e}")
@@ -162,14 +178,28 @@ Return ONLY a numbered list of improvements, one per line. Focus on:
 Do NOT include markdown formatting, code blocks, or explanations."""
             try:
                 session = await self._get_session()
-                async with session.post(OLLAMA_EMBED_URL.replace("/api/embed", "/api/chat"), json={
-                    "model": EMBED_MODEL,
-                    "messages": [{"role": "system", "content": "You are an evolution analyst. Return only a numbered list of improvements."}, {"role": "user", "content": prompt}],
-                    "stream": False
-                }, timeout=aiohttp.ClientTimeout(total=60)) as r:
+                async with session.post(
+                    OLLAMA_EMBED_URL.replace("/api/embed", "/api/chat"),
+                    json={
+                        "model": EMBED_MODEL,
+                        "messages": [
+                            {
+                                "role": "system",
+                                "content": "You are an evolution analyst. Return only a numbered list of improvements.",
+                            },
+                            {"role": "user", "content": prompt},
+                        ],
+                        "stream": False,
+                    },
+                    timeout=aiohttp.ClientTimeout(total=60),
+                ) as r:
                     data = await r.json()
                     content = data.get("message", {}).get("content", "")
-                    improvements = [line.strip().lstrip("0123456789. -") for line in content.strip().split("\n") if line.strip()]
+                    improvements = [
+                        line.strip().lstrip("0123456789. -")
+                        for line in content.strip().split("\n")
+                        if line.strip()
+                    ]
                     if not improvements:
                         improvements = ["Add streaming for agent tool calls in the Web UI"]
             except Exception as e:
@@ -177,7 +207,7 @@ Do NOT include markdown formatting, code blocks, or explanations."""
                 improvements = ["Add streaming for agent tool calls in the Web UI"]
 
         todo_path = self.root / "EVOLVE_TODO.md"
-        with open(todo_path, 'w', encoding='utf-8') as f:
+        with open(todo_path, "w", encoding="utf-8") as f:
             f.write(f"# Evolution TODO - {datetime.now()}\n\n")
             for imp in improvements:
                 f.write(f"- [ ] {imp}\n")
@@ -199,9 +229,7 @@ Do NOT include markdown formatting, code blocks, or explanations."""
         if not improvements and (self.root / "EVOLVE_TODO.md").exists():
             try:
                 todo_text = (self.root / "EVOLVE_TODO.md").read_text(encoding="utf-8")
-                improvements = [
-                    m.group(1) for m in re.finditer(r"^- \[ \] (.+)", todo_text, re.M)
-                ]
+                improvements = [m.group(1) for m in re.finditer(r"^- \[ \] (.+)", todo_text, re.M)]
             except Exception as e:
                 print(f"   ⚠️ Could not read EVOLVE_TODO.md for fallback: {e}")
                 improvements = []
