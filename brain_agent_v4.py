@@ -31,6 +31,20 @@ def _fingerprint(content: str) -> str:
     return hashlib.sha256(re.sub(r"\s+", " ", content.strip()).encode("utf-8")).hexdigest()
 
 
+KB_ROOT = Path(__file__).parent
+load_dotenv(KB_ROOT / ".env")
+
+from app_settings import get_settings
+
+_settings = get_settings()
+
+# Structured logging
+logging.basicConfig(
+    level=_settings.log_level,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger("SecondBrain")
+
 # Gemini integration
 try:
     from google import genai
@@ -39,13 +53,6 @@ try:
     GEMINI_AVAILABLE = True
 except ImportError:
     GEMINI_AVAILABLE = False
-
-# Structured logging
-logging.basicConfig(
-    level=os.getenv("LOG_LEVEL", "INFO"),
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
-logger = logging.getLogger("SecondBrain")
 
 # (2) Failure Gate — consecutive tool/model failure cap (deepseek→qwen hang guard)
 # If N calls fail in a row, give up with clear error instead of hanging/looping.
@@ -128,14 +135,7 @@ def tool_gemini_query(prompt: str) -> str:
         return f"Gemini Query Failed: {str(e)}"
 
 
-KB_ROOT = Path(__file__).parent
-load_dotenv(KB_ROOT / ".env")
-
-from app_settings import get_settings
-
-_settings = get_settings()
-
-NEON_DSN = _settings.neon_dsn or os.getenv("DATABASE_URL")
+NEON_DSN = _settings.neon_dsn or _settings.database_url
 OLLAMA_EMBED_URL = _settings.ollama_embed_url
 OLLAMA_CHAT_URL = _settings.ollama_chat_url
 EMBED_MODEL = _settings.embed_model
@@ -146,7 +146,7 @@ AUTO_COMMIT = _settings.auto_commit
 
 
 def resolve_proj(env_key, fallbacks):
-    v = os.getenv(env_key)
+    v = getattr(_settings, env_key.lower(), None)
     if v and Path(v).exists():
         return v
     for p in fallbacks:
@@ -157,18 +157,17 @@ def resolve_proj(env_key, fallbacks):
 
 PROJECTS = {
     "content-engine": resolve_proj(
-        "PROJECT_CONTENT_ENGINE", [r"X:\content engine\Robin-Content-Engine-v2"]
+        "project_content_engine", [r"X:\content engine\Robin-Content-Engine-v2"]
     ),
-    "lvyy": resolve_proj("PROJECT_LVYY", [r"C:\Users\loyal\lvyy-ai-sales-agent"]),
+    "lvyy": resolve_proj("project_lvyy", [r"C:\Users\loyal\lvyy-ai-sales-agent"]),
     "rico": resolve_proj(
-        "PROJECT_RICO", [r"X:\rico\Rico-Your-AI-intelligent-job-hunt-partner-in-the-UAE"]
+        "project_rico", [r"X:\rico\Rico-Your-AI-intelligent-job-hunt-partner-in-the-UAE"]
     ),
     "second-brain": str(KB_ROOT),
 }
 PROJECTS = {k: v for k, v in PROJECTS.items() if v and Path(v).exists()}
-CURRENT_PROJECT = os.getenv(
-    "CURRENT_PROJECT",
-    "lvyy" if "lvyy" in PROJECTS else list(PROJECTS.keys())[0] if PROJECTS else None,
+CURRENT_PROJECT = _settings.current_project or (
+    "lvyy" if "lvyy" in PROJECTS else list(PROJECTS.keys())[0] if PROJECTS else None
 )
 
 sys.path.insert(0, str(KB_ROOT / "v4-extract" / "second-brain-v4"))
@@ -356,9 +355,7 @@ class Agent:
         self.history.append({"role": "user", "content": user_msg})
         messages = [{"role": "system", "content": self.system}] + self.history
 
-        max_failures = int(
-            os.getenv("MAX_CONSECUTIVE_TOOL_FAILURES", str(DEFAULT_MAX_CONSECUTIVE_TOOL_FAILURES))
-        )
+        max_failures = _settings.max_consecutive_tool_failures
         consecutive_failures = 0
         last_failure = ""
 
@@ -368,8 +365,8 @@ class Agent:
                 if tools:
                     payload["tools"] = tools
 
-                # Ollama timeout tunable via env (was hardcoded 600s for deepseek slow-load; qwen is faster)
-                ollama_timeout = int(os.getenv("OLLAMA_TIMEOUT", "300"))
+                # Ollama timeout from settings
+                ollama_timeout = _settings.ollama_timeout
                 try:
                     async with session.post(
                         OLLAMA_CHAT_URL,

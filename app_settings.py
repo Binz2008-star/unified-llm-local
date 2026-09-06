@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     max_command_output_bytes: int = Field(default=200_000, ge=1024, le=10_000_000)
     max_tool_calls: int = Field(default=30, ge=1, le=200)
     max_context_tokens: int = Field(default=24_000, ge=1000, le=200_000)
+    max_consecutive_tool_failures: int = Field(default=3, ge=1, le=50)
+    ollama_timeout: int = Field(default=300, ge=10, le=3600)
 
     # ── Ollama ───────────────────────────────────────────────────
     ollama_base_url: str = "http://127.0.0.1:11434"
@@ -47,9 +49,10 @@ class Settings(BaseSettings):
     # ── Databases ────────────────────────────────────────────────
     local_dsn: str | None = None
     neon_dsn: str | None = None
+    database_url: str | None = None
 
     # ── Projects ─────────────────────────────────────────────────
-    current_project: str = "second_brain"
+    current_project: str = "second-brain"
     project_content_engine: str | None = None
     project_lvyy: str | None = None
     project_rico: str | None = None
