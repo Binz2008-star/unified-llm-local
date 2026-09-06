@@ -1,13 +1,37 @@
-name: ROBEN AI Console CI
+name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [master, main]
   pull_request:
-    branches: [ main ]
+    branches: [master, main]
 
 jobs:
-  verify:
+  python-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Dependencies
+        run: |
+          pip install --upgrade pip
+          pip install ruff pytest
+
+      - name: Lint with Ruff
+        run: ruff check .
+
+      - name: Run Tests
+        run: python -m pytest tests/ -v
+
+  node-verify:
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
