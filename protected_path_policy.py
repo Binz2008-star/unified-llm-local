@@ -243,8 +243,9 @@ def rename_file(source: str, target: str, workspace: Path) -> str:
 
 def copy_file(source: str, target: str, workspace: Path) -> str:
     """Copy a file within workspace bounds. SEC-05: checks both paths."""
-    from tool_security import validate_path
     import shutil
+
+    from tool_security import validate_path
 
     src = validate_path(source, workspace)
     dst = validate_path(target, workspace)

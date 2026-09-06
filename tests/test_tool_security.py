@@ -264,6 +264,7 @@ class TestCommandInjection:
         """Verify asyncio.create_subprocess_exec is used (not Popen with shell)."""
         # This is a structural test - verify the module uses safe subprocess
         import inspect
+
         import tool_security
 
         source = inspect.getsource(tool_security)
@@ -275,7 +276,6 @@ class TestCommandInjection:
     def test_no_raw_subprocess_in_brain_agent(self):
         """Verify brain_agent_v4.py doesn't use raw subprocess.run."""
         import ast
-        from pathlib import Path
 
         ba_path = Path(__file__).parent.parent / "brain_agent_v4.py"
         source = ba_path.read_text()
