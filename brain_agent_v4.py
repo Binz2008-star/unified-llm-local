@@ -4,21 +4,27 @@
 """
 
 import asyncio
-import os
-import sys
-import json
-import uuid
-import subprocess
-import shlex
-import logging
-from pathlib import Path
-from typing import List, Dict, Any, Optional, AsyncGenerator
-from datetime import datetime
-from dotenv import load_dotenv
-import asyncpg
-import aiohttp
 import hashlib
+import json
+import logging
+import os
 import re
+import subprocess
+import sys
+import uuid
+from collections.abc import AsyncGenerator
+from pathlib import Path
+from typing import Any
+
+import aiohttp
+import asyncpg
+from dotenv import load_dotenv
+
+from tool_security import (
+    read_file,
+    run_command,
+    write_file,
+)
 
 
 def _fingerprint(content: str) -> str:
@@ -72,21 +78,8 @@ def _tool_result_failed(result) -> bool:
     return False
 
 
-# Security: Shell command denylist
-SHELL_DENYLIST = (
-    "rm -rf /",
-    "rm -rf ~",
-    "rm -rf .",
-    ":(){:|:&};:",
-    "git push",
-    "git reset --hard",
-    "git clean -fd",
-    "> /dev/sd",
-    "mkfs",
-    "dd if=",
-    "shutdown",
-    "reboot",
-)
+# Security: Replaced denylist with allowlist in tool_security.py
+# See tool_security.py for ALLOWED_EXECUTABLES, BLOCKED_ARGUMENT_PATTERNS
 
 
 class GeminiLLMClient:
@@ -207,7 +200,7 @@ except Exception as e:
     print(f"[memory] disabled: {e}")
 
 
-async def embed(text: str) -> List[float]:
+async def embed(text: str) -> list[float]:
     if not text or not text.strip():
         return [0.0] * EMBED_DIM
     async with aiohttp.ClientSession() as session:
@@ -226,10 +219,10 @@ async def embed(text: str) -> List[float]:
 async def search_brain(
     query: str,
     top_k: int = 8,
-    project_id: Optional[str] = None,
-    language: Optional[str] = None,
-    chunk_type: Optional[str] = None,
-) -> List[Dict]:
+    project_id: str | None = None,
+    language: str | None = None,
+    chunk_type: str | None = None,
+) -> list[dict]:
     """Hybrid semantic search across all indexed projects (vector + BM25 via RRF).
 
     Uses the hybrid_search() PostgreSQL function for Reciprocal Rank Fusion.
@@ -302,7 +295,7 @@ def _jsonable(value):
 
 
 async def save_conversation(
-    session_id: str, role: str, content: str, tool_calls=None, project_id: Optional[str] = None
+    session_id: str, role: str, content: str, tool_calls=None, project_id: str | None = None
 ):
     payload = json.dumps(_jsonable(tool_calls)) if tool_calls else None
     pool = await _get_pool()
@@ -333,7 +326,7 @@ async def save_conversation(
             await asyncio.sleep(0.5 * (attempt + 1))
 
 
-async def persist_agent_history(session_id: str, agents: List[Any]) -> int:
+async def persist_agent_history(session_id: str, agents: list[Any]) -> int:
     saved = 0
     for agent in agents:
         for msg in agent.history:
@@ -380,7 +373,7 @@ class Agent:
                         timeout=aiohttp.ClientTimeout(total=ollama_timeout, connect=60),
                     ) as resp:
                         data = await resp.json()
-                except (asyncio.TimeoutError, aiohttp.ClientError) as e:
+                except (TimeoutError, aiohttp.ClientError) as e:
                     consecutive_failures += 1
                     last_failure = (
                         f"model {self.model} call failed ({type(e).__name__}: {str(e)[:150]})"
@@ -538,69 +531,29 @@ def _validate_path(file_path: str, root: Path) -> Path:
 
 def tool_read(file_path: str):
     root = Path(PROJECTS[CURRENT_PROJECT])
-    try:
-        p = _validate_path(file_path, root)
-    except ValueError as e:
-        return f"Security error: {e}"
-    if not p.exists():
-        return f"Not found: {p}"
-    return p.read_text(encoding="utf-8", errors="ignore")[:8000]
+    return read_file(file_path, root)
 
 
 def tool_write(file_path: str, content: str):
     root = Path(PROJECTS[CURRENT_PROJECT])
-    try:
-        p = _validate_path(file_path, root)
-    except ValueError as e:
-        return f"Security error: {e}"
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(content, encoding="utf-8")
-    return f"Wrote {len(content)} chars to {p}"
+    return write_file(file_path, content, root)
 
 
 def tool_shell(command: str):
-    lowered = command.lower()
-    for bad in SHELL_DENYLIST:
-        if bad in lowered:
-            logger.warning("Blocked denylisted command: %s", bad)
-            return f"Blocked: command matches denylisted pattern {bad!r}"
+    root = Path(PROJECTS[CURRENT_PROJECT])
+    import asyncio as _asyncio
 
-    # Parse command into argument list - never use shell=True
-    try:
-        args = shlex.split(command)
-    except ValueError as e:
-        return f"Error: invalid command syntax: {e}"
+    result = _asyncio.get_event_loop().run_until_complete(
+        run_command(command, root, timeout_seconds=120)
+    )
 
-    if not args:
-        return "Error: empty command"
+    if result.blocked:
+        return f"Blocked: {result.block_reason}"
 
-    # Block dangerous commands
-    dangerous_commands = {
-        "rm",
-        "rmdir",
-        "del",
-        "format",
-        "mkfs",
-        "dd",
-        "shutdown",
-        "reboot",
-        "halt",
-        "poweroff",
-        "init",
-    }
-    if args[0].lower() in dangerous_commands:
-        return f"Blocked: command '{args[0]}' is not allowed"
-
-    try:
-        root = PROJECTS[CURRENT_PROJECT]
-        r = subprocess.run(args, shell=False, cwd=root, capture_output=True, text=True, timeout=120)
-        return f"Exit {r.returncode}:\n{r.stdout[-5000:]}\n{r.stderr[-2000:]}"
-    except subprocess.TimeoutExpired:
-        logger.error("Command timed out after 120s: %s", command)
-        return "Error: command timed out after 120s"
-    except Exception as e:
-        logger.exception("Shell command failed: %s", command)
-        return f"Error: {e}"
+    output = f"Exit {result.exit_code}:\n{result.stdout[-5000:]}\n{result.stderr[-2000:]}"
+    if result.timed_out:
+        output = f"TIMED OUT after 120s:\n{result.stderr}"
+    return output
 
 
 def tool_run_tests(test_command: str = None):
@@ -863,7 +816,7 @@ class SelfHealingRunner:
         self.agent = agent_executor
         self.max_retries = max_retries
 
-    async def run_with_self_healing(self, target_file: str, test_command: str) -> Dict[str, Any]:
+    async def run_with_self_healing(self, target_file: str, test_command: str) -> dict[str, Any]:
         for attempt in range(1, self.max_retries + 1):
             logger.info(f"🔄 Execution Attempt {attempt}/{self.max_retries} for {target_file}")
             test_output = tool_shell(test_command)
@@ -1004,7 +957,7 @@ async def run_multi_agent(task: str):
     await persist_agent_history(session_id, [architect])
 
     editor = Agent("Editor", EDITOR_MODEL, EDITOR_SYSTEM)
-    implementation = await editor.chat(
+    await editor.chat(
         f"Task: {task}\n\nArchitect plan:\n{plan}\n\nImplement it.", tools=TOOLS, tool_map=TOOL_MAP
     )
     await persist_agent_history(session_id, [editor])
@@ -1054,7 +1007,7 @@ async def run_multi_agent(task: str):
     logger.info("Multi-agent task complete: %s", task)
 
 
-async def run_multi_agent_stream(task: str) -> AsyncGenerator[Dict[str, Any], None]:
+async def run_multi_agent_stream(task: str) -> AsyncGenerator[dict[str, Any], None]:
     """Stream multi-agent progress as events for SSE (Completed Implementation)"""
     session_id = uuid.uuid4().hex
     yield {"type": "start", "session_id": session_id, "task": task}
@@ -1213,6 +1166,7 @@ async def run_multi_agent_stream(task: str) -> AsyncGenerator[Dict[str, Any], No
 def serve_fastapi():
     """Run the FastAPI server for Code It dashboard integration"""
     import uvicorn
+
     from api import app as fastapi_app
 
     uvicorn.run(fastapi_app, host="0.0.0.0", port=8000)
