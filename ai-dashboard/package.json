@@ -22,7 +22,7 @@
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
     "pg": "^8.23.0",
-    "react": "^19.0.1",
+    "react": "^19.3.1",
     "react-dom": "^19.0.1",
     "recharts": "^3.10.1",
     "vite": "^6.2.3",
@@ -30,7 +30,7 @@
   },
   "devDependencies": {
     "@types/node": "^26.4.0",
-    "@types/react": "^19.0.0",
+    "@types/react": "^19.3.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.7.0",
     "autoprefixer": "^10.4.21",
