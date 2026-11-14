@@ -92,7 +92,7 @@ The product promise is **a candid Arabic/English AI discussion partner that reme
 - Explicit deletion flow, consent for remembered preferences, privacy notice and minimal retention; HTTPS, rotating access keys, backups and recovery.
 - Payment processor tokenizes card information. Never store raw card numbers. Verify signed payment webhooks, idempotency, entitlement lifecycle and expiration server-side.
 
-**Interface contract:** a proposed non-production OpenAPI 3.1 contract lives in [SECOND_BRAIN_PILOT_OPENAPI_PROPOSAL.yaml](SECOND_BRAIN_PILOT_OPENAPI_PROPOSAL.yaml). It is a future API **design**, not a representation of deployed endpoints.
+**Interface contract:** a proposed non-production OpenAPI 3.1 contract lives in [SECOND_BRAIN_PILOT_OPENAPI_PROPOSAL.json](SECOND_BRAIN_PILOT_OPENAPI_PROPOSAL.json). It is a future API **design**, not a representation of deployed endpoints.
 
 ## 6. Experience limits to test first
 
@@ -127,7 +127,7 @@ Illustrative planning scenarios below exclude licensing, taxes, founder time, su
 | Local narrow pilot | 10 | 490.00 | 24.21 | 120.00 assumed, not measured | **345.79** |
 | Dedicated cloud GPU always on | 10 | 490.00 | 24.21 | approx 714.00 GPU only | **-248.21** (before storage) |
 
-Runpod displayed **RTX A5000 Pod USD 0.27/hour** on its pricing page updated 9 Nov 2026 [S8]; at 720 hours × 0.27 × 3.6725 ≈ **AED 714.04/month** purely for compute. It is a *pricing illustration*, not a tested suitable configuration, guaranteed availability or final bill. 4 operating hours/day over 30 days at the same hourly rate ≈ **AED 119** before storage/setup/idle/warm-up. Pricing changes; re-check before any spend. Reliable 24/7 GPU is economically difficult at 5–10 subscriptions priced AED 49.
+Runpod displayed **RTX A5000 Pod USD 0.27/hour** on its pricing page updated 9 Nov 2026 [S8]; at 720 hours × 0.27 × 3.6725 ≈ **AED 713.93/month** purely for compute. It is a *pricing illustration*, not a tested suitable configuration, guaranteed availability or final bill. 4 operating hours/day over 30 days at the same hourly rate ≈ **AED 119** before storage/setup/idle/warm-up. Pricing changes; re-check before any spend. Reliable 24/7 GPU is economically difficult at 5–10 subscriptions priced AED 49.
 
 **Contribution break-even formula:** ceil(monthly fixed costs / (price - payment fees - other variable cost/user)). With AED 120 assumed fixed cost and zero other variable cost, **ceil(120 / 46.579) = 3 users**; this is NOT true business break-even because license, time and other costs are excluded. Cloud compute AED 714 alone implies at least **16 users** at these assumptions, before any support, tax or storage. Any infrastructure spend requires an explicit monthly cap approved by the owner; initial recommended incremental spend target **AED 0–150/month only if achievable**, not a commitment.
 
@@ -183,7 +183,7 @@ Runpod displayed **RTX A5000 Pod USD 0.27/hour** on its pricing page updated 9 N
 
 ## 10. API product design: minimum stable customer contract
 
-Full proposed request/response schemas and error codes: [SECOND_BRAIN_PILOT_OPENAPI_PROPOSAL.yaml](SECOND_BRAIN_PILOT_OPENAPI_PROPOSAL.yaml).
+Full proposed request/response schemas and error codes: [SECOND_BRAIN_PILOT_OPENAPI_PROPOSAL.json](SECOND_BRAIN_PILOT_OPENAPI_PROPOSAL.json).
 
 **Routes to BUILD in separate public service, not available now:**
 - POST /v1/invitations/redeem — one-time signed invitation; validates age 18+ assertion and consent.
