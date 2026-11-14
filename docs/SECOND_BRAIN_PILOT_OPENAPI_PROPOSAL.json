@@ -1,0 +1,1776 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Second Brain Private Pilot API — PROPOSAL ONLY",
+    "version": "0.1.0-draft",
+    "description": "Non-production design for a standalone, invite-only UAE adult pilot. NOT the existing /api endpoints in unified-llm-local. Do NOT expose original agent, search, memory, project or telemetry routes. All paid operations blocked pending legal/commercial authorization."
+  },
+  "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
+  "tags": [
+    {
+      "name": "Access"
+    },
+    {
+      "name": "Chat"
+    },
+    {
+      "name": "Privacy"
+    },
+    {
+      "name": "Billing"
+    },
+    {
+      "name": "Operations"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "paths": {
+    "/v1/invitations/redeem": {
+      "post": {
+        "tags": [
+          "Access"
+        ],
+        "summary": "Redeem single-use invite and register for pilot",
+        "operationId": "redeemInvitation",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "invitation_token": {
+                    "type": "string",
+                    "description": "Single-use private invitation",
+                    "minLength": 16
+                  },
+                  "email": {
+                    "type": "string",
+                    "description": "Email associated with invitation",
+                    "format": "email"
+                  },
+                  "age_18_plus_asserted": {
+                    "type": "boolean",
+                    "const": true
+                  },
+                  "accepted_terms_version": {
+                    "type": "string",
+                    "description": "Version of policy accepted"
+                  },
+                  "privacy_consent": {
+                    "type": "boolean",
+                    "const": true
+                  }
+                },
+                "required": [
+                  "invitation_token",
+                  "email",
+                  "age_18_plus_asserted",
+                  "accepted_terms_version",
+                  "privacy_consent"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "access_token": {
+                      "type": "string",
+                      "description": "Short-lived opaque session or JWT"
+                    },
+                    "expires_at": {
+                      "type": "string",
+                      "description": "UTC RFC3339 timestamp",
+                      "format": "date-time"
+                    },
+                    "account_id": {
+                      "type": "string",
+                      "description": "Opaque identifier",
+                      "format": "uuid"
+                    }
+                  },
+                  "required": [
+                    "access_token",
+                    "expires_at",
+                    "account_id"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "description": "Safe stable code"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "User-facing explanation"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Access forbidden or entitlement missing"
+          },
+          "404": {
+            "description": "Not found or user does not own this resource"
+          },
+          "409": {
+            "description": "Conflict, duplicate, or idempotency mismatch"
+          },
+          "422": {
+            "description": "Validation error"
+          },
+          "429": {
+            "description": "Per-user or global rate limit",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "description": "Seconds before retry"
+              }
+            }
+          },
+          "503": {
+            "description": "Model capacity or service unavailable; do not reveal internals"
+          }
+        },
+        "description": "Rate limit, bind invite to destination identity, check eligibility and record terms/consent. Requires server-side ownership of enrollment. Do not put bearer token in URL."
+      }
+    },
+    "/v1/me": {
+      "get": {
+        "tags": [
+          "Access"
+        ],
+        "summary": "Get account and usage entitlement",
+        "operationId": "getMe",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "account_id": {
+                      "type": "string",
+                      "description": "Opaque identifier",
+                      "format": "uuid"
+                    },
+                    "subscription": {
+                      "type": "object",
+                      "properties": {
+                        "plan": {
+                          "type": "string",
+                          "description": "e.g. beta_49_aed_30d"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "none",
+                            "trial",
+                            "active",
+                            "past_due",
+                            "expired",
+                            "cancelled"
+                          ]
+                        },
+                        "expires_at": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "description": "UTC RFC3339 timestamp",
+                              "format": "date-time"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "auto_renew": {
+                          "type": "boolean",
+                          "const": false
+                        },
+                        "currency": {
+                          "type": "string",
+                          "const": "AED"
+                        },
+                        "amount_aed": {
+                          "type": "integer",
+                          "const": 49
+                        }
+                      },
+                      "required": [
+                        "plan",
+                        "status",
+                        "expires_at",
+                        "auto_renew",
+                        "currency",
+                        "amount_aed"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "limits": {
+                      "type": "object",
+                      "properties": {
+                        "service_hours": {
+                          "type": "string",
+                          "description": "Advertised time window in Asia/Dubai"
+                        },
+                        "daily_message_limit": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "daily_message_remaining": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "required": [
+                        "service_hours",
+                        "daily_message_limit",
+                        "daily_message_remaining"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "account_id",
+                    "subscription",
+                    "limits"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "description": "Safe stable code"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "User-facing explanation"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Access forbidden or entitlement missing"
+          },
+          "404": {
+            "description": "Not found or user does not own this resource"
+          },
+          "409": {
+            "description": "Conflict, duplicate, or idempotency mismatch"
+          },
+          "422": {
+            "description": "Validation error"
+          },
+          "429": {
+            "description": "Per-user or global rate limit",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "description": "Seconds before retry"
+              }
+            }
+          },
+          "503": {
+            "description": "Model capacity or service unavailable; do not reveal internals"
+          }
+        },
+        "description": "Proposed design only. Not implemented; gates and tenant-scoped authorization required."
+      },
+      "delete": {
+        "tags": [
+          "Privacy"
+        ],
+        "summary": "Request irreversible account deletion",
+        "operationId": "deleteMe",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "204": {
+            "description": "Deleted or accepted"
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "description": "Safe stable code"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "User-facing explanation"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Access forbidden or entitlement missing"
+          },
+          "404": {
+            "description": "Not found or user does not own this resource"
+          },
+          "409": {
+            "description": "Conflict, duplicate, or idempotency mismatch"
+          },
+          "422": {
+            "description": "Validation error"
+          },
+          "429": {
+            "description": "Per-user or global rate limit",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "description": "Seconds before retry"
+              }
+            }
+          },
+          "503": {
+            "description": "Model capacity or service unavailable; do not reveal internals"
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-Delete-Confirmation",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "DELETE"
+            },
+            "description": "Server must also enforce fresh reauthentication and documented retention rules"
+          }
+        ],
+        "description": "Delete / queue legally compliant erasure and revoke sessions. Require fresh re-authentication; never rely solely on this header."
+      }
+    },
+    "/v1/conversations": {
+      "post": {
+        "tags": [
+          "Chat"
+        ],
+        "summary": "Create private conversation",
+        "operationId": "createConversation",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "description": "Optional local title",
+                    "maxLength": 120
+                  }
+                },
+                "required": [],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "Opaque identifier",
+                      "format": "uuid"
+                    },
+                    "created_at": {
+                      "type": "string",
+                      "description": "UTC RFC3339 timestamp",
+                      "format": "date-time"
+                    },
+                    "updated_at": {
+                      "type": "string",
+                      "description": "UTC RFC3339 timestamp",
+                      "format": "date-time"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "created_at"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "Opaque identifier",
+                      "format": "uuid"
+                    },
+                    "created_at": {
+                      "type": "string",
+                      "description": "UTC RFC3339 timestamp",
+                      "format": "date-time"
+                    },
+                    "updated_at": {
+                      "type": "string",
+                      "description": "UTC RFC3339 timestamp",
+                      "format": "date-time"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "created_at"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "description": "Safe stable code"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "User-facing explanation"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Access forbidden or entitlement missing"
+          },
+          "404": {
+            "description": "Not found or user does not own this resource"
+          },
+          "409": {
+            "description": "Conflict, duplicate, or idempotency mismatch"
+          },
+          "422": {
+            "description": "Validation error"
+          },
+          "429": {
+            "description": "Per-user or global rate limit",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "description": "Seconds before retry"
+              }
+            }
+          },
+          "503": {
+            "description": "Model capacity or service unavailable; do not reveal internals"
+          }
+        },
+        "description": "Server binds new conversation to authenticated account, not to client-submitted owner_id."
+      }
+    },
+    "/v1/conversations/{conversation_id}": {
+      "get": {
+        "tags": [
+          "Chat"
+        ],
+        "summary": "Get own conversation history",
+        "operationId": "getConversation",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "conversation": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "description": "Opaque identifier",
+                          "format": "uuid"
+                        },
+                        "created_at": {
+                          "type": "string",
+                          "description": "UTC RFC3339 timestamp",
+                          "format": "date-time"
+                        },
+                        "updated_at": {
+                          "type": "string",
+                          "description": "UTC RFC3339 timestamp",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "created_at"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "messages": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "role": {
+                            "type": "string",
+                            "enum": [
+                              "user",
+                              "assistant"
+                            ]
+                          },
+                          "text": {
+                            "type": "string",
+                            "description": "Saved text"
+                          },
+                          "created_at": {
+                            "type": "string",
+                            "description": "UTC RFC3339 timestamp",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "role",
+                          "text",
+                          "created_at"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "conversation",
+                    "messages"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "description": "Safe stable code"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "User-facing explanation"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Access forbidden or entitlement missing"
+          },
+          "404": {
+            "description": "Not found or user does not own this resource"
+          },
+          "409": {
+            "description": "Conflict, duplicate, or idempotency mismatch"
+          },
+          "422": {
+            "description": "Validation error"
+          },
+          "429": {
+            "description": "Per-user or global rate limit",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "description": "Seconds before retry"
+              }
+            }
+          },
+          "503": {
+            "description": "Model capacity or service unavailable; do not reveal internals"
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Must be owned by authenticated account"
+          }
+        ],
+        "description": "Proposed design only. Not implemented; gates and tenant-scoped authorization required."
+      },
+      "delete": {
+        "tags": [
+          "Privacy"
+        ],
+        "summary": "Delete own conversation",
+        "operationId": "deleteConversation",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "204": {
+            "description": "Deleted or accepted"
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "description": "Safe stable code"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "User-facing explanation"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Access forbidden or entitlement missing"
+          },
+          "404": {
+            "description": "Not found or user does not own this resource"
+          },
+          "409": {
+            "description": "Conflict, duplicate, or idempotency mismatch"
+          },
+          "422": {
+            "description": "Validation error"
+          },
+          "429": {
+            "description": "Per-user or global rate limit",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "description": "Seconds before retry"
+              }
+            }
+          },
+          "503": {
+            "description": "Model capacity or service unavailable; do not reveal internals"
+          }
+        },
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Must be owned by authenticated account"
+          }
+        ],
+        "description": "Proposed design only. Not implemented; gates and tenant-scoped authorization required."
+      }
+    },
+    "/v1/conversations/{conversation_id}/messages": {
+      "post": {
+        "tags": [
+          "Chat"
+        ],
+        "summary": "Generate a bounded reply for owned conversation",
+        "operationId": "createMessage",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "message": {
+                    "type": "string",
+                    "description": "Plain text only; no attachments in v1",
+                    "minLength": 1,
+                    "maxLength": 2000
+                  },
+                  "max_output_tokens": {
+                    "type": "integer",
+                    "minimum": 32,
+                    "maximum": 512,
+                    "default": 512
+                  }
+                },
+                "required": [
+                  "message"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "request_id": {
+                      "type": "string",
+                      "description": "Opaque identifier",
+                      "format": "uuid"
+                    },
+                    "conversation_id": {
+                      "type": "string",
+                      "description": "Opaque identifier",
+                      "format": "uuid"
+                    },
+                    "answer": {
+                      "type": "string",
+                      "description": "Assistant reply. May provide a safety refusal."
+                    },
+                    "model": {
+                      "type": "string",
+                      "description": "Public model display name; do not expose host path"
+                    },
+                    "usage": {
+                      "type": "object",
+                      "properties": {
+                        "input_tokens": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "output_tokens": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "required": [
+                        "input_tokens",
+                        "output_tokens"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "quota_remaining": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "created_at": {
+                      "type": "string",
+                      "description": "UTC RFC3339 timestamp",
+                      "format": "date-time"
+                    }
+                  },
+                  "required": [
+                    "request_id",
+                    "conversation_id",
+                    "answer",
+                    "quota_remaining",
+                    "created_at"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "description": "Safe stable code"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "User-facing explanation"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Access forbidden or entitlement missing"
+          },
+          "404": {
+            "description": "Not found or user does not own this resource"
+          },
+          "409": {
+            "description": "Conflict, duplicate, or idempotency mismatch"
+          },
+          "422": {
+            "description": "Validation error"
+          },
+          "429": {
+            "description": "Per-user or global rate limit",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "description": "Seconds before retry"
+              }
+            }
+          },
+          "503": {
+            "description": "Model capacity or service unavailable; do not reveal internals"
+          }
+        },
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 120
+            },
+            "description": "Unique per intended user message; replay must not consume quota twice"
+          }
+        ],
+        "description": "Tenant authorization, content safety policy, quota and queue limits before Ollama inference. No external agent tools or owner RAG retrieval. Default batch JSON reply; streaming can be separately designed later."
+      }
+    },
+    "/v1/usage": {
+      "get": {
+        "tags": [
+          "Access"
+        ],
+        "summary": "Get current daily usage",
+        "operationId": "getUsage",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "report_date": {
+                      "type": "string",
+                      "description": "YYYY-MM-DD in Asia/Dubai",
+                      "format": "date"
+                    },
+                    "used_messages": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "daily_message_limit": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "remaining_messages": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "report_date",
+                    "used_messages",
+                    "daily_message_limit",
+                    "remaining_messages"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "description": "Safe stable code"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "User-facing explanation"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Access forbidden or entitlement missing"
+          },
+          "404": {
+            "description": "Not found or user does not own this resource"
+          },
+          "409": {
+            "description": "Conflict, duplicate, or idempotency mismatch"
+          },
+          "422": {
+            "description": "Validation error"
+          },
+          "429": {
+            "description": "Per-user or global rate limit",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "description": "Seconds before retry"
+              }
+            }
+          },
+          "503": {
+            "description": "Model capacity or service unavailable; do not reveal internals"
+          }
+        },
+        "description": "Proposed design only. Not implemented; gates and tenant-scoped authorization required."
+      }
+    },
+    "/v1/subscription": {
+      "get": {
+        "tags": [
+          "Billing"
+        ],
+        "summary": "Read own subscription status",
+        "operationId": "getSubscription",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "plan": {
+                      "type": "string",
+                      "description": "e.g. beta_49_aed_30d"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "trial",
+                        "active",
+                        "past_due",
+                        "expired",
+                        "cancelled"
+                      ]
+                    },
+                    "expires_at": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "description": "UTC RFC3339 timestamp",
+                          "format": "date-time"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "auto_renew": {
+                      "type": "boolean",
+                      "const": false
+                    },
+                    "currency": {
+                      "type": "string",
+                      "const": "AED"
+                    },
+                    "amount_aed": {
+                      "type": "integer",
+                      "const": 49
+                    }
+                  },
+                  "required": [
+                    "plan",
+                    "status",
+                    "expires_at",
+                    "auto_renew",
+                    "currency",
+                    "amount_aed"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "description": "Safe stable code"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "User-facing explanation"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Access forbidden or entitlement missing"
+          },
+          "404": {
+            "description": "Not found or user does not own this resource"
+          },
+          "409": {
+            "description": "Conflict, duplicate, or idempotency mismatch"
+          },
+          "422": {
+            "description": "Validation error"
+          },
+          "429": {
+            "description": "Per-user or global rate limit",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "description": "Seconds before retry"
+              }
+            }
+          },
+          "503": {
+            "description": "Model capacity or service unavailable; do not reveal internals"
+          }
+        },
+        "description": "Proposed design only. Not implemented; gates and tenant-scoped authorization required."
+      }
+    },
+    "/v1/billing/checkout": {
+      "post": {
+        "tags": [
+          "Billing"
+        ],
+        "summary": "Create hosted checkout session after legal payment approval",
+        "operationId": "createCheckout",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "plan_code": {
+                    "type": "string",
+                    "const": "beta_49_aed_30d"
+                  },
+                  "return_path": {
+                    "type": "string",
+                    "description": "Relative local return path; server validate allowlist"
+                  }
+                },
+                "required": [
+                  "plan_code"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "checkout_url": {
+                      "type": "string",
+                      "description": "Trusted payment processor hosted URL",
+                      "format": "uri"
+                    },
+                    "checkout_session_id": {
+                      "type": "string",
+                      "description": "Non-secret payment reference"
+                    }
+                  },
+                  "required": [
+                    "checkout_url",
+                    "checkout_session_id"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "description": "Safe stable code"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "User-facing explanation"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Access forbidden or entitlement missing"
+          },
+          "404": {
+            "description": "Not found or user does not own this resource"
+          },
+          "409": {
+            "description": "Conflict, duplicate, or idempotency mismatch"
+          },
+          "422": {
+            "description": "Validation error"
+          },
+          "429": {
+            "description": "Per-user or global rate limit",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "description": "Seconds before retry"
+              }
+            }
+          },
+          "503": {
+            "description": "Model capacity or service unavailable; do not reveal internals"
+          }
+        },
+        "description": "DISABLED until owner confirms correct trade activity and processor account. No raw card data. Do not activate access on redirect; wait for verified paid webhook."
+      }
+    },
+    "/v1/billing/webhooks/provider": {
+      "post": {
+        "tags": [
+          "Billing"
+        ],
+        "summary": "Process signed provider webhook",
+        "operationId": "providerWebhook",
+        "security": [
+          {
+            "webhookSignature": []
+          }
+        ],
+        "description": "Validate HMAC/timestamp, idempotency and settlement status server-side. Deny unsigned calls, maintain replay protection. No public entitlement mutation.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "received": {
+                      "type": "boolean",
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "received"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Signature or payload invalid"
+          },
+          "409": {
+            "description": "Replay rejected"
+          }
+        }
+      }
+    },
+    "/v1/feedback": {
+      "post": {
+        "tags": [
+          "Chat"
+        ],
+        "summary": "Submit response feedback with no raw prompt content",
+        "operationId": "submitFeedback",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "request_id": {
+                    "type": "string",
+                    "description": "Opaque identifier",
+                    "format": "uuid"
+                  },
+                  "rating": {
+                    "type": "string",
+                    "enum": [
+                      "useful",
+                      "not_useful"
+                    ]
+                  },
+                  "flag_reason": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "inaccurate",
+                      "unsafe",
+                      "too_short",
+                      "too_slow",
+                      "other"
+                    ]
+                  }
+                },
+                "required": [
+                  "request_id",
+                  "rating"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "recorded": {
+                      "type": "boolean",
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "recorded"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "description": "Safe stable code"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "User-facing explanation"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Access forbidden or entitlement missing"
+          },
+          "404": {
+            "description": "Not found or user does not own this resource"
+          },
+          "409": {
+            "description": "Conflict, duplicate, or idempotency mismatch"
+          },
+          "422": {
+            "description": "Validation error"
+          },
+          "429": {
+            "description": "Per-user or global rate limit",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "description": "Seconds before retry"
+              }
+            }
+          },
+          "503": {
+            "description": "Model capacity or service unavailable; do not reveal internals"
+          }
+        },
+        "description": "Proposed design only. Not implemented; gates and tenant-scoped authorization required."
+      }
+    },
+    "/v1/privacy/export": {
+      "post": {
+        "tags": [
+          "Privacy"
+        ],
+        "summary": "Request secure data export",
+        "operationId": "requestExport",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "format": {
+                    "type": "string",
+                    "enum": [
+                      "json"
+                    ],
+                    "default": "json"
+                  }
+                },
+                "required": [],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "request_id": {
+                      "type": "string",
+                      "description": "Opaque identifier",
+                      "format": "uuid"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "queued",
+                        "processing",
+                        "ready"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "request_id",
+                    "status"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "description": "Safe stable code"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "User-facing explanation"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Access forbidden or entitlement missing"
+          },
+          "404": {
+            "description": "Not found or user does not own this resource"
+          },
+          "409": {
+            "description": "Conflict, duplicate, or idempotency mismatch"
+          },
+          "422": {
+            "description": "Validation error"
+          },
+          "429": {
+            "description": "Per-user or global rate limit",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "description": "Seconds before retry"
+              }
+            }
+          },
+          "503": {
+            "description": "Model capacity or service unavailable; do not reveal internals"
+          }
+        },
+        "description": "Protect exported data with reauthentication, short expiry and secure delivery; document processing time."
+      }
+    },
+    "/health/live": {
+      "get": {
+        "tags": [
+          "Operations"
+        ],
+        "summary": "Minimal liveness signal",
+        "operationId": "healthLive",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Service running",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "ok"
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "tags": [
+          "Operations"
+        ],
+        "summary": "Minimal ready status; no private telemetry",
+        "operationId": "healthReady",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "const": "ready"
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Not ready"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Short-lived authenticated user token, server-side tenant identity; never distribute in links"
+      },
+      "webhookSignature": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Provider-Signature",
+        "description": "Signed HMAC/timestamp; check against processor secret with replay prevention"
+      }
+    }
+  },
+  "x-security-gates": [
+    "No public access to existing developer routes or ports",
+    "Tenant isolation and cross-account negative tests",
+    "Private Ollama endpoint only",
+    "Age 18+, explicit terms and privacy consent",
+    "Commercial license/payment gate before paid checkout",
+    "Daily quota and latency measurement",
+    "Do not log raw prompts in analytics"
+  ],
+  "x-implementation-status": "PROPOSAL-NOT-DEPLOYED"
+}
